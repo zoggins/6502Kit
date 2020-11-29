@@ -1,0 +1,494 @@
+0001   0000             ; BOOT LOADER for 6502 TRAINER KIT
+0002   0000             ; WRITTEN BY WICHIT SIRICHOTE
+0003   0000             ; DECEMBER 24, 2014
+0004   0000             ; TASM ASSEMBLER
+0005   0000             
+0006   0000             
+0007   0000             GPIO1   .EQU 8000H
+0008   0000             PORT0   .EQU 8001H
+0009   0000             PORT1   .EQU 8002H
+0010   0000             PORT2   .EQU 8003H
+0011   0000             
+0012   0000             
+0013   0000              	  ; page zero register definition
+0014   0000             
+0015   0000                    
+0016   0000             REG_E   .EQU 80H
+0017   0000             REG_D   .EQU 81H
+0018   0000             REG_B   .EQU 82H
+0019   0000             REG_C   .EQU 83H
+0020   0000             HL      .EQU 84H           ; 84H = L 85H = H
+0021   0000             DE      .EQU 86H
+0022   0000             REG_A   .EQU 88H
+0023   0000             
+0024   0000             _ERROR  .EQU 89H           ; ERROR FLAG FOR INTEL HEX FILE DOWNLOADING
+0025   0000             BCC     .EQU 8AH           ; BYTE CHECK SUM
+0026   0000             
+0027   0000             
+0028   0000             
+0029   0000             ;	.ORG 0C000H
+0030   0000             
+0031   4000             	.ORG 4000H         ; FOR TESTING IN RAM
+0032   4000             
+0033   4000 A2 FF       	LDX #0FFH
+0034   4002 9A          	TXS
+0035   4003 58          	CLI
+0036   4004 A9 00       	LDA #0
+0037   4006 85 84       	STA HL
+0038   4008 A9 C0       	LDA #0C0H
+0039   400A 85 85       	STA HL+1 
+0040   400C             
+0041   400C 4C DC 41    	JMP MAIN
+0042   400F             
+0043   400F A0 4C       BIT_DELAY LDY #76      ; 1190 Hz TEST AT 1MHZ OSCILLATOR
+0044   4011 88          LOOP      DEY
+0045   4012 D0 FD                 BNE LOOP
+0046   4014 60          	  RTS
+0047   4015             
+0048   4015 A0 72       BIT1_5_DELAY LDY #114      ; DELAY 1.5 BIT
+0049   4017 88          LOOP1      DEY
+0050   4018 D0 FD                 BNE LOOP1
+0051   401A 60          	  RTS
+0052   401B             
+0053   401B             
+0054   401B             
+0055   401B             ; SEND ASCII LETTER TO TERMINAL
+0056   401B             ; ENTRY: A
+0057   401B             
+0058   401B 85 80       SEND_BYTE: STA REG_E  ; SAVE ACCUMULATOR
+0059   401D                          
+0060   401D A9 7F                 LDA #7FH
+0061   401F 8D 02 80    	  STA PORT1
+0062   4022 20 0F 40              JSR BIT_DELAY    ; SEND START BIT
+0063   4025             	  
+0064   4025 A9 08                 LDA #8
+0065   4027 85 81       	  STA REG_D
+0066   4029                                
+0067   4029 A5 80       CHK_BIT:   LDA REG_E
+0068   402B 29 01                  AND #1
+0069   402D F0 08       	   BEQ SEND_ZERO
+0070   402F                       
+0071   402F A9 FF       	   LDA #0FFH
+0072   4031 8D 02 80    	   STA PORT1
+0073   4034             
+0074   4034 4C 3F 40               JMP NEXT_BIT
+0075   4037             	  
+0076   4037                          
+0077   4037 A9 7F       SEND_ZERO: LDA #7FH
+0078   4039 8D 02 80               STA PORT1
+0079   403C 4C 3F 40    	   JMP NEXT_BIT
+0080   403F                         
+0081   403F 20 0F 40    NEXT_BIT:  JSR BIT_DELAY
+0082   4042                  
+0083   4042 46 80                  LSR REG_E
+0084   4044 C6 81       	   DEC REG_D
+0085   4046 D0 E1                  BNE CHK_BIT
+0086   4048                       
+0087   4048 A9 FF                  LDA #0FFH
+0088   404A 8D 02 80    	   STA PORT1
+0089   404D 20 0F 40    	   JSR BIT_DELAY
+0090   4050 60          	   RTS
+0091   4051             
+0092   4051             
+0093   4051             ; RECEIVE BYTE FROM 2400 BIT/S TERMINAL
+0094   4051             ; EXIT: A
+0095   4051             
+0096   4051 AD 01 80    CIN	 LDA PORT0 
+0097   4054 29 80                AND #80H
+0098   4056 D0 F9       	 BNE CIN
+0099   4058                      
+0100   4058 20 15 40    	 JSR BIT1_5_DELAY
+0101   405B             	 
+0102   405B A9 07       	 LDA #7
+0103   405D 85 81       	 STA REG_D
+0104   405F A9 00       	 LDA #0
+0105   4061 85 80       	 STA REG_E
+0106   4063             
+0107   4063                 
+0108   4063                         
+0109   4063 AD 01 80    CHK_BIT_RX   LDA PORT0
+0110   4066 29 80                  AND #80H
+0111   4068 D0 09                  BNE BIT_IS_ONE
+0112   406A                        
+0113   406A A5 80                  LDA REG_E
+0114   406C 29 7F       	   AND #7FH
+0115   406E 85 80       	   STA REG_E
+0116   4070 4C 7C 40    	   JMP NEXT_BIT_RX
+0117   4073                          
+0118   4073 A5 80       BIT_IS_ONE LDA REG_E
+0119   4075 09 80                  ORA #80H
+0120   4077 85 80       	   STA REG_E
+0121   4079 4C 7C 40               JMP NEXT_BIT_RX
+0122   407C                         
+0123   407C 20 0F 40    NEXT_BIT_RX  JSR BIT_DELAY
+0124   407F                  
+0125   407F 46 80                  LSR REG_E
+0126   4081             
+0127   4081 C6 81                  DEC REG_D
+0128   4083 D0 DE       	   BNE CHK_BIT_RX
+0129   4085             
+0130   4085 20 0F 40    	   JSR BIT_DELAY    ; CENTER OF STOP BIT
+0131   4088                        
+0132   4088 A5 80       	   LDA REG_E 
+0133   408A             
+0134   408A 60          	   RTS
+0135   408B             
+0136   408B             
+0137   408B             ; PRINT TEXT FROM STRING AREA
+0138   408B             ; ENTRY: X POINTED TO OFFSET
+0139   408B             
+0140   408B BD 00 6F    PSTRING   LDA TEXT1,X
+0141   408E C9 00                 CMP #0
+0142   4090 D0 01       	  BNE PRINT_IT
+0143   4092 60          	  RTS
+0144   4093             
+0145   4093 20 1B 40    PRINT_IT  JSR SEND_BYTE
+0146   4096 E8                    INX
+0147   4097 4C 8B 40    	  JMP PSTRING
+0148   409A             
+0149   409A             CR        .EQU 0DH
+0150   409A             LF        .EQU 0AH
+0151   409A             EOS       .EQU 0 
+0152   409A             
+0153   409A             ;NEW LINE
+0154   409A             ; PRINT CR, LF
+0155   409A             
+0156   409A A9 0D       NEW_LINE     LDA #0DH
+0157   409C 20 1B 40    	     JSR SEND_BYTE
+0158   409F A9 0A       	     LDA #0AH
+0159   40A1 20 1B 40    	     JSR SEND_BYTE
+0160   40A4 60          	     RTS
+0161   40A5             
+0162   40A5             
+0163   40A5             ; WRITE NIBBLE TO TERMINAL
+0164   40A5 29 0F       OUT1X        AND #0FH  
+0165   40A7 18                       CLC
+0166   40A8 69 30       	     ADC #30H 
+0167   40AA C9 3A                    CMP  #3AH
+0168   40AC 90 03       	     BCC OUT1X1
+0169   40AE 18          	     CLC
+0170   40AF 69 07       	     ADC #7
+0171   40B1 20 1B 40    OUT1X1	     JSR SEND_BYTE
+0172   40B4 60          	     RTS
+0173   40B5             
+0174   40B5             
+0175   40B5 48          OUT2X        PHA
+0176   40B6                          
+0177   40B6 4A          	     LSR A
+0178   40B7 4A                       LSR A
+0179   40B8 4A          	     LSR A
+0180   40B9 4A          	     LSR A
+0181   40BA             	     
+0182   40BA             	   ;  STA GPIO1
+0183   40BA             
+0184   40BA 20 A5 40    	     JSR OUT1X
+0185   40BD 68          	     PLA
+0186   40BE 20 A5 40    	     JSR OUT1X
+0187   40C1 60          	     RTS
+0188   40C2             
+0189   40C2             
+0190   40C2             ; INCREMENT HL
+0191   40C2             ; INCREMENT 16-BIT POINTER FOR 16-BIT MEMORY ACCESS
+0192   40C2             
+0193   40C2 18          INC_HL       CLC
+0194   40C3 A5 84                    LDA HL
+0195   40C5 69 01       	     ADC #1
+0196   40C7 85 84       	     STA HL
+0197   40C9 A5 85       	     LDA HL+1
+0198   40CB 69 00       	     ADC #0
+0199   40CD 85 85       	     STA HL+1
+0200   40CF 60          	     RTS
+0201   40D0             
+0202   40D0             
+0203   40D0             ; PRINT LINE OF MEMORY POINTED TO HL
+0204   40D0             
+0205   40D0 20 9A 40    PRINT_LINE   JSR NEW_LINE
+0206   40D3 A9 10                    LDA #16
+0207   40D5 85 83                    STA REG_C
+0208   40D7             
+0209   40D7             	     
+0210   40D7             	     
+0211   40D7 A5 85                    LDA HL+1
+0212   40D9 20 B5 40    	     JSR OUT2X
+0213   40DC A5 84       	     LDA HL
+0214   40DE 20 B5 40    	     JSR OUT2X
+0215   40E1             
+0216   40E1 A9 3A       	     LDA #':'
+0217   40E3 20 1B 40    	     JSR SEND_BYTE
+0218   40E6             
+0219   40E6 A0 00       PRINT_LINE2  LDY #0
+0220   40E8 B1 84                    LDA (HL),Y
+0221   40EA             	     
+0222   40EA 20 B5 40    	     JSR OUT2X
+0223   40ED             	      
+0224   40ED A9 20       	     LDA #' '
+0225   40EF 20 1B 40    	     JSR SEND_BYTE
+0226   40F2             	     
+0227   40F2 20 C2 40    	     JSR INC_HL
+0228   40F5             	     
+0229   40F5 C6 83       	     DEC REG_C
+0230   40F7             	    
+0231   40F7 D0 ED       	     BNE PRINT_LINE2
+0232   40F9             
+0233   40F9 60          	     RTS
+0234   40FA             
+0235   40FA             ; CONVERT ASCII TO HEX
+0236   40FA             ; ENTRY: A
+0237   40FA             
+0238   40FA 38          TO_HEX     SEC
+0239   40FB E9 30                  SBC #30H
+0240   40FD C9 10       	   CMP #10H
+0241   40FF 90 05       	   BCC ZERO_NINE
+0242   4101 29 DF       	   AND #11011111B
+0243   4103 38          	   SEC
+0244   4104 E9 07       	   SBC #7
+0245   4106             
+0246   4106 60          ZERO_NINE  RTS
+0247   4107             
+0248   4107             ; CONVERT TWO ASCII LETTERS  TO SINGLE BYTE
+0249   4107             ; EXIT: A
+0250   4107             
+0251   4107 20 51 40    GET_HEX    JSR CIN       
+0252   410A 20 FA 40    	   JSR TO_HEX
+0253   410D 0A                     ASL A
+0254   410E 0A          	   ASL A
+0255   410F 0A          	   ASL A
+0256   4110 0A          	   ASL A
+0257   4111             
+0258   4111 8D 00 80    	   STA GPIO1
+0259   4114             	   
+0260   4114 85 88       	   STA REG_A
+0261   4116             	   
+0262   4116 20 51 40    	   JSR CIN
+0263   4119 20 FA 40    	   JSR TO_HEX
+0264   411C 18          	   CLC
+0265   411D 65 88       	   ADC REG_A
+0266   411F             
+0267   411F 60          	   RTS
+0268   4120             
+0269   4120             ; CONVERT TWO ASCII LETTERS  TO SINGLE BYTE
+0270   4120             ; EXIT: A
+0271   4120             
+0272   4120 20 51 40    GET_HEX2    JSR CIN     
+0273   4123 48                     PHA
+0274   4124 20 1B 40    	   JSR SEND_BYTE   ; ECHO TO TERMINAL
+0275   4127 68          	   PLA
+0276   4128 20 FA 40    	   JSR TO_HEX
+0277   412B 0A                     ASL A
+0278   412C 0A          	   ASL A
+0279   412D 0A          	   ASL A
+0280   412E 0A          	   ASL A
+0281   412F             
+0282   412F 8D 00 80    	   STA GPIO1
+0283   4132             	   
+0284   4132 85 88       	   STA REG_A
+0285   4134             	   
+0286   4134 20 51 40    	   JSR CIN
+0287   4137 48          	   PHA
+0288   4138 20 1B 40    	   JSR SEND_BYTE
+0289   413B 68          	   PLA
+0290   413C 20 FA 40    	   JSR TO_HEX
+0291   413F 18          	   CLC
+0292   4140 65 88       	   ADC REG_A
+0293   4142             
+0294   4142 60          	   RTS
+0295   4143             
+0296   4143             ;-----------------------------------------------------
+0297   4143             SET_NEW_ADDRESS
+0298   4143             
+0299   4143 20 1B 40              JSR SEND_BYTE
+0300   4146 A2 1A       	  LDX #PROMPT&00FFH
+0301   4148 20 8B 40              JSR PSTRING
+0302   414B 20 20 41    	  JSR GET_HEX2
+0303   414E 85 85       	  STA HL+1
+0304   4150 20 20 41    	  JSR GET_HEX2
+0305   4153 85 84       	  STA HL
+0306   4155 60          	  RTS
+0307   4156             
+0308   4156 18          ADD_BCC   CLC
+0309   4157 65 8A                 ADC BCC
+0310   4159 85 8A       	  STA BCC
+0311   415B 60          	  RTS
+0312   415C             
+0313   415C             ;---------------------------------------------------------
+0314   415C             ; GET_RECORD READS INTEL HEX FILE AND SAVE TO MEMORY
+0315   415C             
+0316   415C A9 00       GET_RECORD LDA #0
+0317   415E 85 89       	   STA _ERROR
+0318   4160             
+0319   4160 20 51 40    GET_RECORD1 JSR CIN
+0320   4163 C9 3A       	   CMP #':'
+0321   4165 D0 F9       	   BNE GET_RECORD1
+0322   4167             	   
+0323   4167             	   
+0324   4167 A9 00       	   LDA #0	
+0325   4169 85 8A       	   STA BCC
+0326   416B             	 
+0327   416B 20 07 41    	   JSR GET_HEX
+0328   416E 85 83       	   STA REG_C     ; GET NUMBER OF BYTE
+0329   4170             	   
+0330   4170 20 56 41    	   JSR ADD_BCC
+0331   4173             
+0332   4173 20 07 41    	   JSR GET_HEX
+0333   4176 85 85                  STA HL+1
+0334   4178             	   
+0335   4178 20 56 41    	   JSR ADD_BCC
+0336   417B             
+0337   417B 20 07 41    	   JSR GET_HEX
+0338   417E 85 84       	   STA HL        ; GET LOAD ADDRESS
+0339   4180             
+0340   4180 20 56 41    	   JSR ADD_BCC
+0341   4183             
+0342   4183 20 07 41    	   JSR GET_HEX
+0343   4186             
+0344   4186 C9 00       	   CMP #0
+0345   4188             
+0346   4188 F0 14       	   BEQ DATA_RECORD
+0347   418A             	   
+0348   418A 20 51 40    WAIT_CR	   JSR CIN
+0349   418D C9 0D       	   CMP #0DH
+0350   418F D0 F9       	   BNE WAIT_CR
+0351   4191             	   
+0352   4191 8D 00 80    	   STA GPIO1
+0353   4194             	   
+0354   4194 A5 89       	   LDA _ERROR
+0355   4196 C9 01       	   CMP #1
+0356   4198 D0 03       	   BNE NOERROR
+0357   419A             	   
+0358   419A 8D 00 80    	   STA GPIO1
+0359   419D             
+0360   419D 60          NOERROR    RTS
+0361   419E             
+0362   419E             DATA_RECORD
+0363   419E             
+0364   419E 20 07 41    	   JSR GET_HEX
+0365   41A1 A0 00       	   LDY #0
+0366   41A3 91 84       	   STA (HL),Y	; WRITE TO MEMORY
+0367   41A5             	   
+0368   41A5 20 56 41    	   JSR ADD_BCC
+0369   41A8             
+0370   41A8 8D 00 80    	   STA GPIO1
+0371   41AB             	   
+0372   41AB 20 C2 40    	   JSR INC_HL
+0373   41AE             	   
+0374   41AE C6 83       	   DEC REG_C
+0375   41B0 D0 EC       	   BNE DATA_RECORD ; UNTIL C=0
+0376   41B2             
+0377   41B2 A5 8A                  LDA BCC
+0378   41B4 49 FF       	   EOR #0FFH    ; ONE'S COMPLEMENT
+0379   41B6 18          	   CLC          
+0380   41B7 69 01       	   ADC #1       ; TWO'S COMPLEMENT
+0381   41B9 85 8A       	   STA BCC
+0382   41BB             	   
+0383   41BB             	   
+0384   41BB 20 07 41    	   JSR GET_HEX	   ; GET BYTE CHECK SUM
+0385   41BE             	   
+0386   41BE C5 8A       	   CMP BCC	; COMPARE WITH BYTE CHECK SUM
+0387   41C0 F0 04       	   BEQ SKIP11
+0388   41C2             	  
+0389   41C2 A9 01       	   LDA #1
+0390   41C4 85 89       	   STA _ERROR    ; ERROR FLAG =1
+0391   41C6             	   
+0392   41C6             	   
+0393   41C6             SKIP11
+0394   41C6             	   
+0395   41C6 4C 60 41    	   JMP GET_RECORD1     ; NEXT LINE 
+0396   41C9             
+0397   41C9             
+0398   41C9             
+0399   41C9             SEND_PROMPT
+0400   41C9             
+0401   41C9 20 9A 40              JSR NEW_LINE
+0402   41CC A5 85                  LDA HL+1
+0403   41CE 20 B5 40    	   JSR OUT2X
+0404   41D1 A5 84       	   LDA HL
+0405   41D3 20 B5 40    	   JSR OUT2X
+0406   41D6             
+0407   41D6                      
+0408   41D6 A2 1A       	  LDX #PROMPT&00FFH
+0409   41D8 20 8B 40              JSR PSTRING
+0410   41DB 60                    RTS
+0411   41DC             
+0412   41DC             ;---------------------------------------------------------
+0413   41DC             
+0414   41DC 20 51 40    MAIN      JSR CIN
+0415   41DF 8D 00 80              STA GPIO1 
+0416   41E2 C9 0D                 CMP #CR
+0417   41E4 D0 0E       	  BNE CHECK_COMMAND_P
+0418   41E6             	  
+0419   41E6 20 9A 40    	  JSR NEW_LINE
+0420   41E9 A2 00       	  LDX #0
+0421   41EB 20 8B 40    	  JSR PSTRING
+0422   41EE             
+0423   41EE 20 C9 41              JSR SEND_PROMPT
+0424   41F1             	  
+0425   41F1 4C DC 41    	  JMP MAIN
+0426   41F4             
+0427   41F4             CHECK_COMMAND_P
+0428   41F4             
+0429   41F4 C9 50                 CMP #'P'
+0430   41F6 D0 06       	  BNE CHECK_COMMAND_N
+0431   41F8             
+0432   41F8 20 D0 40           	  JSR PRINT_LINE
+0433   41FB             
+0434   41FB 4C DC 41    	  JMP MAIN
+0435   41FE             
+0436   41FE             CHECK_COMMAND_N
+0437   41FE             
+0438   41FE C9 4E                 CMP #'N'
+0439   4200 D0 06       	  BNE CHECK_COMMAND_L
+0440   4202             
+0441   4202 20 43 41              JSR SET_NEW_ADDRESS
+0442   4205             	 
+0443   4205 4C DC 41    	  JMP MAIN
+0444   4208             
+0445   4208             CHECK_COMMAND_L
+0446   4208             
+0447   4208 C9 4C                 CMP #'L'
+0448   420A D0 09       	  BNE COMMAND_GO
+0449   420C             
+0450   420C 20 1B 40    	  JSR SEND_BYTE
+0451   420F             
+0452   420F 20 5C 41    	  JSR GET_RECORD
+0453   4212             
+0454   4212 4C DC 41    	  JMP MAIN
+0455   4215             
+0456   4215             COMMAND_GO
+0457   4215 C9 47                 CMP #'G'
+0458   4217 D0 C3       	  BNE MAIN
+0459   4219 6C 84 00    	  JMP (0084H)
+0460   421C             
+0461   421C             
+0462   421C             	;  .FILL 3000h, 0FFH
+0463   421C             
+0464   421C             ; PAGE FOR CONSTANT STRINGS AREA
+0465   421C             
+0466   421C             	  ;.ORG 0EF00H        ; ROM MONITOR
+0467   6F00                        .ORG 06F00H        ; RAM TEST 
+0468   6F00             
+0469   6F00             
+0470   6F00             ;TEXT1      .TEXT "6502 TRAINER KIT V1.0 ROM"
+0471   6F00              ;          .BYTE 0
+0472   6F00 363530322054TEXT1      .TEXT "6502 TRAINER KIT V1.0 RAM"
+0472   6F06 5241494E4552204B49542056312E302052414D
+0473   6F19 00          	   .BYTE 0
+0474   6F1A             
+0475   6F1A 3E 3E       PROMPT     .TEXT ">>"
+0476   6F1C 00                     .BYTE 0
+0477   6F1D             
+0478   6F1D             
+0479   6F1D             
+0480   6F1D             
+0481   6F1D             	  ; RESET VECTOR
+0482   6F1D             
+0483   6F1D             
+0484   FFFC             	  .ORG 0FFFCH
+0485   FFFC             
+0486   FFFC 00 C0       	  .BYTE 00,0C0H
+0487   FFFE             
+0488   FFFE             
+0489   FFFE             
+0490   FFFE             
+0491   FFFE             	  .END
+0492   FFFE             
+tasm: Number of errors = 0

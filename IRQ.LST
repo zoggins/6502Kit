@@ -1,0 +1,53 @@
+0001   0000             
+0002   0000             GPIO1   .EQU 8000H
+0003   0000             PORT0   .EQU 8001H
+0004   0000             PORT1   .EQU 8002H
+0005   0000             PORT2   .EQU 8003H
+0006   0000             
+0007   0000             
+0008   0030             	.ORG $30
+0009   0030             
+0010   0030             SEC100  .BLOCK 1
+0011   0031             SEC     .BLOCK 1
+0012   0032             
+0013   0032             
+0014   00FE                     .ORG $FE
+0015   00FE 0C 02               .WORD SERVICE_IRQ
+0016   0100             
+0017   0200             	.ORG 200H
+0018   0200             
+0019   0200 A9 0C       MAIN     LDA #SERVICE_IRQ&$FF
+0020   0202 85 FE                STA $FE
+0021   0204 A9 02       	 LDA #2
+0022   0206 85 FF       	 STA $FF
+0023   0208                     
+0024   0208 58          	 CLI       ; ENABLE IRQ
+0025   0209 4C 09 02             JMP $
+0026   020C             
+0027   020C             
+0028   020C             SERVICE_IRQ
+0029   020C             
+0030   020C 78                   SEI       ; FOR NMOS WE NEED TO SET IT
+0031   020D             	 
+0032   020D F8          	 SED       ; SET DECIMAL MODE
+0033   020E E6 30                INC SEC100
+0034   0210 A5 30       	 LDA SEC100
+0035   0212 C9 64       	 CMP #100
+0036   0214 D0 10       	 BNE SKIP1
+0037   0216 A9 00       	 LDA #0
+0038   0218 85 30       	 STA SEC100
+0039   021A             	 
+0040   021A 18          	 CLC
+0041   021B A5 31       	 LDA SEC
+0042   021D 69 01       	 ADC #1
+0043   021F 85 31                STA SEC       
+0044   0221             	 
+0045   0221 A5 31       	 LDA SEC
+0046   0223 8D 00 80    	 STA GPIO1
+0047   0226             
+0048   0226             SKIP1   
+0049   0226 40                   RTI
+0050   0227                      
+0051   0227             	 .END
+0052   0227             
+tasm: Number of errors = 0

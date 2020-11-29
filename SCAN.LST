@@ -1,0 +1,317 @@
+0001   0000             ; SCAN DISPLAY AND KEYBOARD
+0002   0000             
+0003   0000             
+0004   0000             
+0005   0000             GPIO1   .EQU 8000H
+0006   0000             PORT0   .EQU 8001H
+0007   0000             PORT1   .EQU 8002H
+0008   0000             PORT2   .EQU 8003H
+0009   0000             
+0010   0000             DIGIT   .EQU 8002H
+0011   0000             SEG7    .EQU 8003H
+0012   0000             KIN     .EQU 8001H
+0013   0000             
+0014   0000             
+0015   0000              	  ; page zero register definition
+0016   0000             
+0017   0000                    
+0018   0000             ;REG_E   .EQU 80H
+0019   0000             ;REG_D   .EQU 81H
+0020   0000             ;REG_B   .EQU 82H
+0021   0000             ;REG_C   .EQU 83H
+0022   0000             ;HL      .EQU 84H           ; 84H = L 85H = H
+0023   0000             ;DE      .EQU 86H
+0024   0000             ;REG_A   .EQU 88H
+0025   0000             
+0026   0000             ;_ERROR  .EQU 89H           ; ERROR FLAG FOR INTEL HEX FILE DOWNLOADING
+0027   0000             ;BCC     .EQU 8AH           ; BYTE CHECK SUM
+0028   0000             ;BUFFER  .EQU 8BH           ; 8BH - 90H PAGE ZERO DISPLAY BUFFER
+0029   0000             ;KEY     .EQU 91H
+0030   0000             ;STATE   .EQU 92H
+0031   0000             
+0032   0000              	  ; page zero register definition
+0033   0000                      
+0034   0000             	 .DSEG
+0035   0080             	 .ORG 80H
+0036   0080                    
+0037   0080             REG_E   .BLOCK 1
+0038   0081             REG_D   .BLOCK 1
+0039   0082             REG_B   .BLOCK 1
+0040   0083             REG_C   .BLOCK 1
+0041   0084             HL      .BLOCK 2           ; 84H = L 85H = H
+0042   0086             DE      .BLOCK 2
+0043   0088             REG_A   .BLOCK 1
+0044   0089             
+0045   0089             _ERROR  .BLOCK 1           ; ERROR FLAG FOR INTEL HEX FILE DOWNLOADING
+0046   008A             BCC     .BLOCK 1           ; BYTE CHECK SUM
+0047   008B             BUFFER  .BLOCK 6           ; 8BH - 90H PAGE ZERO DISPLAY BUFFER
+0048   0091             KEY     .BLOCK 1
+0049   0092             STATE   .BLOCK 1
+0050   0093             
+0051   0093             
+0052   0093                       .CSEG
+0053   0093             
+0054   0093             
+0055   1000                        .ORG 1000H     ; START ADDRESS FOR CODE TESTING IN RAM
+0056   1000             
+0057   1000 4C ED 10               JMP MAIN
+0058   1003             
+0059   1003             
+0060   1003             ; SCAN DISPLAY AND KEYBOARD
+0061   1003             ; ENTRY: DISPLAY BUFFER IN PAGE 0
+0062   1003             ; EXIT: KEY = -1 NO KEY PRESSED
+0063   1003             ;       KEY >=0 KEY POSITION
+0064   1003             
+0065   1003             
+0066   1003             SCAN1:
+0067   1003             
+0068   1003             		
+0069   1003             	
+0070   1003 A2 00       	LDX #0
+0071   1005 A9 00       	LDA #0
+0072   1007 85 83       	STA REG_C
+0073   1009             	
+0074   1009 A9 FF       	LDA #-1
+0075   100B 85 91       	STA KEY
+0076   100D             	
+0077   100D A9 01       	LDA #1
+0078   100F 85 80       	STA REG_E
+0079   1011             	
+0080   1011 A9 06       	LDA #6
+0081   1013 85 84       	STA HL
+0082   1015             				
+0083   1015             ;to the active column.
+0084   1015 A5 80       KCOL    LDA REG_E	
+0085   1017             
+0086   1017 49 FF              	EOR #0FFH               ; COMPLEMENT IT
+0087   1019 8D 02 80    	STA DIGIT
+0088   101C             
+0089   101C B5 8B       	LDA BUFFER,X
+0090   101E 8D 03 80    	STA SEG7
+0091   1021             
+0092   1021 A0 64       	LDY #100
+0093   1023 88          DELAY3	DEY
+0094   1024 D0 FD       	BNE DELAY3
+0095   1026             
+0096   1026 A9 00       	LDA #0                 ; TURN LED OFF
+0097   1028 8D 03 80    	STA SEG7
+0098   102B             	
+0099   102B             
+0100   102B A9 06       	LDA #6
+0101   102D 85 82       	STA REG_B
+0102   102F             	
+0103   102F AD 01 80    	LDA KIN
+0104   1032             	
+0105   1032 85 81       	STA  REG_D
+0106   1034             
+0107   1034             	
+0108   1034 46 81       KROW	LSR  REG_D		;Rotate D 1 bit right, bit 0
+0109   1036             				;of D will be rotated into
+0110   1036 B0 04       	BCS NOKEY			;carry flag.
+0111   1038             	
+0112   1038 A5 83       	LDA REG_C
+0113   103A 85 91       	STA KEY
+0114   103C             
+0115   103C E6 83       NOKEY	INC REG_C		;Increase current key-code by 1.
+0116   103E             	
+0117   103E C6 82       	DEC REG_B
+0118   1040 D0 F2       	BNE KROW
+0119   1042             	
+0120   1042 E8          	INX
+0121   1043             	
+0122   1043 A5 80       	LDA REG_E
+0123   1045 0A          	ASL A
+0124   1046 85 80       	STA REG_E
+0125   1048             		
+0126   1048             	
+0127   1048 C6 84       	DEC  HL
+0128   104A D0 C9       	BNE  KCOL
+0129   104C 60          	RTS
+0130   104D             
+0131   104D             
+0132   104D A0 C8       DEBOUNCE LDY #200
+0133   104F 88          DELAY4   DEY
+0134   1050 D0 FD       	 BNE DELAY4
+0135   1052 60          	 RTS
+0136   1053             
+0137   1053             ;--------------------------------------------------------------------
+0138   1053             
+0139   1053 20 03 10    SCANKEY JSR SCAN1
+0140   1056 A5 91               LDA KEY
+0141   1058 C9 FF       	CMP #-1
+0142   105A D0 F7       	BNE SCANKEY
+0143   105C             
+0144   105C 20 4D 10    	JSR DEBOUNCE
+0145   105F             
+0146   105F             UNTIL_PRESS
+0147   105F             	
+0148   105F 20 03 10    	JSR SCAN1
+0149   1062 A5 91               LDA KEY
+0150   1064 C9 FF       	CMP #-1
+0151   1066 F0 F7       	BEQ UNTIL_PRESS
+0152   1068             
+0153   1068 20 4D 10    	JSR DEBOUNCE
+0154   106B             
+0155   106B 20 03 10    	JSR SCAN1
+0156   106E             
+0157   106E A5 91       	LDA KEY
+0158   1070 AA          	TAX
+0159   1071 BD C9 10    	LDA KEYTAB,X    ; OPEN TABLE
+0160   1074             		
+0161   1074 8D 00 80    	STA GPIO1
+0162   1077 60          	RTS
+0163   1078             
+0164   1078             
+0165   1078             ; CONVERT LOW NIBBLE IN ACCUMULATOR TO 7-SEGMENT PATTERN
+0166   1078             ; ENTRY: A
+0167   1078             ; EXIT: A
+0168   1078             
+0169   1078             NIBBLE_7SEG 
+0170   1078 AA                      TAX
+0171   1079 BD B9 10                LDA SEGTAB,X
+0172   107C 60          	    RTS
+0173   107D             
+0174   107D             
+0175   107D             ; CONVERT BYTE TO 7-SEGMENT PATTERN
+0176   107D             ; ENTRY: A
+0177   107D             ; EXIT: DE
+0178   107D             
+0179   107D 48          BYTE_7SEG   PHA
+0180   107E 29 0F                   AND #0FH
+0181   1080 20 78 10                JSR NIBBLE_7SEG
+0182   1083 85 86       	    STA DE
+0183   1085 68          	    PLA
+0184   1086 4A                      LSR A
+0185   1087 4A          	    LSR A
+0186   1088 4A          	    LSR A
+0187   1089 4A          	    LSR A
+0188   108A 20 78 10    	    JSR NIBBLE_7SEG
+0189   108D 85 87       	    STA DE+1
+0190   108F 60          	    RTS
+0191   1090             
+0192   1090             ; CONVERT BYTE TO 7-SEGMENT PATTERN AND SAVE TO DISPLAY BUFFER DATA FIELD
+0193   1090             ; ENTRY: A
+0194   1090             
+0195   1090 48          DATA_DISPLAY PHA   ; SAVE ACCUMULATOR
+0196   1091 20 7D 10                 JSR BYTE_7SEG
+0197   1094 A5 86       	     LDA DE
+0198   1096 85 8B       	     STA BUFFER
+0199   1098 A5 87       	     LDA DE+1
+0200   109A 85 8C       	     STA BUFFER+1
+0201   109C 68                       PLA
+0202   109D 60          	     RTS
+0203   109E             
+0204   109E             ; CONVERT 16-BIT ADDRESS IN HL AND SAVE IT TO ADDRESS FILED DISPLAY BUFFER
+0205   109E             ; ENTRY: HL
+0206   109E             
+0207   109E             ADDRESS_DISPLAY
+0208   109E             
+0209   109E A5 84                   LDA HL
+0210   10A0 20 7D 10    	    JSR BYTE_7SEG
+0211   10A3 A5 86       	    LDA DE
+0212   10A5 85 8D       	    STA BUFFER+2
+0213   10A7 A5 87       	    LDA DE+1
+0214   10A9 85 8E       	    STA BUFFER+3
+0215   10AB A5 85       	    LDA HL+1
+0216   10AD 20 7D 10    	    JSR BYTE_7SEG
+0217   10B0 A5 86       	    LDA DE
+0218   10B2 85 8F       	    STA BUFFER+4
+0219   10B4 A5 87       	    LDA DE+1
+0220   10B6 85 90       	    STA BUFFER+5
+0221   10B8 60          	    RTS
+0222   10B9             
+0223   10B9             
+0224   10B9 BD          SEGTAB	.BYTE	0BDH		;'0'
+0225   10BA 30          	.BYTE	030H		;'1'
+0226   10BB 9B          	.BYTE	09BH		;'2'
+0227   10BC BA          	.BYTE	0BAH		;'3'
+0228   10BD 36          	.BYTE	036H		;'4'
+0229   10BE AE          	.BYTE	0AEH		;'5'
+0230   10BF AF          	.BYTE	0AFH		;'6'
+0231   10C0 38          	.BYTE	038H		;'7'
+0232   10C1 BF          	.BYTE	0BFH		;'8'
+0233   10C2 BE          	.BYTE	0BEH		;'9'
+0234   10C3 3F          	.BYTE	03FH		;'A'
+0235   10C4 A7          	.BYTE	0A7H		;'B'
+0236   10C5 8D          	.BYTE	08DH		;'C'
+0237   10C6 B3          	.BYTE	0B3H		;'D'
+0238   10C7 8F          	.BYTE	08FH		;'E'
+0239   10C8 0F          	.BYTE	00FH		;'F'
+0240   10C9             
+0241   10C9             
+0242   10C9             
+0243   10C9             ; Key-posistion-code to key-internal-code conversion table.
+0244   10C9             
+0245   10C9             KEYTAB:
+0246   10C9 03          K0	.BYTE	03H	;HEX_3
+0247   10CA 07          K1	.BYTE	07H	;HEX_7
+0248   10CB 0B          K2	.BYTE	0BH	;HEX_B
+0249   10CC 0F          K3	.BYTE	0FH	;HEX_F
+0250   10CD 20          K4	.BYTE	20H	;NOT USED
+0251   10CE 21          K5	.BYTE	21H	;NOT USED
+0252   10CF 02          K6	.BYTE	02H	;HEX_2
+0253   10D0 06          K7	.BYTE	06H	;HEX_6
+0254   10D1 0A          K8	.BYTE	0AH	;HEX_A
+0255   10D2 0E          K9	.BYTE	0EH	;HEX_E
+0256   10D3 22          K0A	.BYTE	22H	;NOT USED
+0257   10D4 23          K0B	.BYTE	23H	;NOT USED
+0258   10D5 01          K0C	.BYTE	01H	;HEX_1
+0259   10D6 05          K0D	.BYTE	05H	;HEX_5
+0260   10D7 09          K0E	.BYTE	09H	;HEX_9
+0261   10D8 0D          K0F	.BYTE	0DH	;HEX_D
+0262   10D9 13          K10	.BYTE	13H	;STEP
+0263   10DA 1F          K11	.BYTE	1FH	;TAPERD
+0264   10DB 00          K12	.BYTE	00H	;HEX_0
+0265   10DC 04          K13	.BYTE	04H	;HEX_4
+0266   10DD 08          K14	.BYTE	08H	;HEX_8
+0267   10DE 0C          K15	.BYTE	0CH	;HEX_C
+0268   10DF 12          K16	.BYTE	12H	;GO
+0269   10E0 1E          K17	.BYTE	1EH	;TAPEWR
+0270   10E1 1A          K18	.BYTE	1AH	;CBR
+0271   10E2 18          K19	.BYTE	18H	;PC
+0272   10E3 1B          K1A	.BYTE	1BH	;REG
+0273   10E4 19          K1B	.BYTE	19H	;ADDR
+0274   10E5 17          K1C	.BYTE	17H	;DEL
+0275   10E6 1D          K1D	.BYTE	1DH	;RELA
+0276   10E7 15          K1E	.BYTE	15H	;SBR
+0277   10E8 11          K1F	.BYTE	11H	;-
+0278   10E9 14          K20	.BYTE	14H	;DATA
+0279   10EA 10          K21	.BYTE	10H	;+
+0280   10EB 16          K22	.BYTE	16H	;INS
+0281   10EC 1C          K23	.BYTE	1CH	;MOVE	
+0282   10ED             
+0283   10ED             
+0284   10ED             
+0285   10ED             
+0286   10ED             ;-------------------------------------------------------------
+0287   10ED             
+0288   10ED A9 AF       MAIN    LDA #0AFH
+0289   10EF 85 90               STA BUFFER+5
+0290   10F1 A9 AE       	LDA #0AEH
+0291   10F3 85 8F       	STA BUFFER+4
+0292   10F5 A9 BD       	LDA #0BDH
+0293   10F7 85 8E       	STA BUFFER+3
+0294   10F9 A9 9B       	LDA #9BH
+0295   10FB 85 8D       	STA BUFFER+2
+0296   10FD             
+0297   10FD A9 00       	LDA #0
+0298   10FF 85 8C       	STA BUFFER+1
+0299   1101 85 8B       	STA BUFFER
+0300   1103             
+0301   1103 A9 00               LDA #00H
+0302   1105 85 84       	STA HL
+0303   1107 A9 10       	LDA #10H
+0304   1109 85 85       	STA HL+1
+0305   110B 20 9E 10    	JSR ADDRESS_DISPLAY
+0306   110E A0 00               LDY #0
+0307   1110 B1 84       	LDA (HL),Y
+0308   1112 20 90 10    	JSR DATA_DISPLAY
+0309   1115             
+0310   1115             
+0311   1115             
+0312   1115 20 53 10    LOOP	JSR SCANKEY
+0313   1118 4C 15 11    	JMP LOOP
+0314   111B             
+0315   111B                     .END
+0316   111B             
+tasm: Number of errors = 0

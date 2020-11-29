@@ -1,0 +1,16 @@
+
+GPIO1   .EQU $8000
+
+	
+	.ORG 200H
+
+         LDX #$10
+
+LOOP	 STX GPIO1
+	 DEX
+	 BNE LOOP
+
+	 STX GPIO1
+HERE	 JMP HERE
+
+	 .END

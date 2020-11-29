@@ -1,0 +1,41 @@
+
+GPIO1   .EQU 8000H
+PORT0   .EQU 8001H
+PORT1   .EQU 8002H
+PORT2   .EQU 8003H
+
+
+	.ORG $30
+
+SEC245  .BLOCK 1
+SEC     .BLOCK 1
+
+
+        .ORG $FE
+        .WORD SERVICE_IRQ
+
+	.ORG 200H
+
+MAIN     
+         JMP MAIN
+
+
+SERVICE_IRQ
+
+         PHA
+         INC SEC245
+	 LDA SEC245
+	 CMP #245
+	 BNE SKIP1
+	 LDA #0
+	 STA SEC245
+	 INC SEC
+	 LDA SEC
+	 STA GPIO1
+
+SKIP1    PLA   
+         RTI
+         
+	 .END
+
+	 .END

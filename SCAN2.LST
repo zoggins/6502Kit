@@ -1,0 +1,116 @@
+0001   0000             ; SCAN2 ONLY SCAN DISPLAY FOR RUNNING MESSAGE
+0002   0000             ; USE FIX LOACTION IN CODE SPACE
+0003   0000             
+0004   0000             GPIO1   .EQU 8000H
+0005   0000             PORT0   .EQU 8001H
+0006   0000             PORT1   .EQU 8002H
+0007   0000             PORT2   .EQU 8003H
+0008   0000             
+0009   0000             DIGIT   .EQU 8002H
+0010   0000             SEG7    .EQU 8003H
+0011   0000             KIN     .EQU 8001H
+0012   0000              
+0013   0000                     .DSEG
+0014   0080             	 .ORG 80H
+0015   0080                    
+0016   0080             REG_E   .BLOCK 1
+0017   0081             REG_D   .BLOCK 1
+0018   0082             REG_B   .BLOCK 1
+0019   0083             REG_C   .BLOCK 1
+0020   0084             HL      .BLOCK 2           ; 84H = L 85H = H
+0021   0086             DE      .BLOCK 2
+0022   0088             REG_A   .BLOCK 1
+0023   0089             
+0024   0089             
+0025   0200                       .ORG 200H
+0026   0200 4C 3F 02    	  JMP MAIN
+0027   0203             
+0028   0203             ; SCAN DISPLAY ONLY
+0029   0203             ; ENTRY: X POINTED TO NEXT MESSAGE BYTE
+0030   0203             ;        FIX_MESSAGE LOCATION
+0031   0203             
+0032   0203             SCAN2:
+0033   0203 86 83       	STX REG_C
+0034   0205 A9 01       	LDA #1
+0035   0207 85 80       	STA REG_E
+0036   0209             	
+0037   0209 A9 06       	LDA #6
+0038   020B 85 84       	STA HL
+0039   020D             				
+0040   020D             ;to the active column.
+0041   020D A5 80       KCOL2   LDA REG_E	
+0042   020F             
+0043   020F 49 FF              	EOR #0FFH               ; COMPLEMENT IT
+0044   0211 8D 02 80    	STA DIGIT
+0045   0214             
+0046   0214 BD 31 02    	LDA START_MSG,X
+0047   0217 8D 03 80    	STA SEG7
+0048   021A             
+0049   021A A0 05       	LDY #5
+0050   021C 88          DELAY5	DEY
+0051   021D D0 FD       	BNE DELAY5
+0052   021F             
+0053   021F A9 00       	LDA #0                 ; TURN LED OFF
+0054   0221 8D 03 80    	STA SEG7
+0055   0224             	
+0056   0224 E8          	INX
+0057   0225             	
+0058   0225 A5 80       	LDA REG_E
+0059   0227 0A          	ASL A
+0060   0228 85 80       	STA REG_E
+0061   022A             		
+0062   022A C6 84       	DEC  HL
+0063   022C D0 DF       	BNE  KCOL2
+0064   022E             
+0065   022E A6 83       	LDX REG_C 
+0066   0230             
+0067   0230 60          	RTS
+0068   0231             
+0069   0231             
+0070   0231 00          START_MSG .BYTE 0
+0071   0232 00                    .BYTE 0
+0072   0233 9B                    .BYTE 9BH
+0073   0234 BD                    .BYTE 0BDH
+0074   0235 AE                    .BYTE 0AEH
+0075   0236 AF          	  .BYTE 0AFH
+0076   0237 00                    .BYTE 0
+0077   0238 00          	  .BYTE 0
+0078   0239 00          	  .BYTE 0
+0079   023A 00          	  .BYTE 0
+0080   023B 00          	  .BYTE 0
+0081   023C 00                    .BYTE 0
+0082   023D             	 
+0083   023D             	 
+0084   023D             	  
+0085   023D             	  
+0086   023D 00          	  .BYTE 0
+0087   023E 00          	  .BYTE 0
+0088   023F             
+0089   023F A9 0A       MAIN      LDA #10
+0090   0241 85 81                 STA REG_D
+0091   0243             
+0092   0243 A9 08       	  LDA #8
+0093   0245 85 82       	  STA REG_B
+0094   0247             
+0095   0247 A2 07       	  LDX #7
+0096   0249             
+0097   0249             DISPLAY2
+0098   0249 20 03 02    	  JSR SCAN2
+0099   024C             
+0100   024C C6 81       	  DEC REG_D
+0101   024E D0 F9       	  BNE DISPLAY2
+0102   0250             
+0103   0250 CA          	  DEX 
+0104   0251             
+0105   0251 C6 82       	  DEC REG_B
+0106   0253 D0 F4       	  BNE DISPLAY2
+0107   0255             
+0108   0255 4C 3F 02              JMP MAIN
+0109   0258             
+0110   0258             
+0111   0258 20 03 02    DISPLAY3  JSR SCAN2
+0112   025B 4C 58 02    	  JMP DISPLAY3
+0113   025E                       
+0114   025E             	  .END
+0115   025E             
+tasm: Number of errors = 0

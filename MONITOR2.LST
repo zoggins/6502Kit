@@ -1,0 +1,2144 @@
+0001   0000             ;----------------------------------------------------------------------------
+0002   0000             ; Monitor program source code for 6502 Microprocessor Kit
+0003   0000             ; Written by Wichit Sirichote, wichit.sirichote@gmail.com
+0004   0000             ; Copyright (c) 2016
+0005   0000             ; 
+0006   0000             ; Source code was assembled with tasm assembler
+0007   0000             ; Example of using tasm
+0008   0000             ;
+0009   0000             ; d:\tasm\tasm -65 monitor.asm
+0010   0000             ;
+0011   0000             ; The object file will be Intel hex file ready for EPROM programmer
+0012   0000             ; The physical location is the 2nd block of 64kB space.
+0013   0000             ; To program the 32kB EPROM, we must move it to the 1st block.
+0014   0000             ; 
+0015   0000             ;
+0016   0000             ;
+0017   0000             ; 26 DECEMBER 2014
+0018   0000             ; 27 DECEMBER 2014
+0019   0000             ;   -ADD OUT OF RANGE CHECK FOR RELATIVE BYTE CALCULATION              
+0020   0000             ;   -ADD DOWNLOAD HEX FILE TO MONITOR SOURCE
+0021   0000             ; 29 DECEMBER 2014
+0022   0000             ;   -ADD START MESSAGE ON COLD BOOT
+0023   0000             ; 30 DECEMBER 2014
+0024   0000             ;   -TEST SINGLE STEP WITH 74LS164
+0025   0000             ;   - ADD REPEAT KEY
+0026   0000             ;   - LOWER REPEAT SPEED
+0027   0000             ;   - REMOVE ACCUMALATOR DISPLAY ON BREAK
+0028   0000             ;  2 JANUARY 2015
+0029   0000             ;  - REMOVE BINARY DISPLAY IN REGISTER MODE
+0030   0000             ;  - ADD REGISTER MODE DISPLAY FOR 10 BYTES ZERO PAGE, $00 TO $09
+0031   0000             ;  3 JANUARY 2015
+0032   0000             ;  - PROVIDE PROGRAM COUNTER SAVING FOR SINGLE STEP RUNNING
+0033   0000             ;    now user may change display address, data, to get back current address being executed,
+0034   0000             ;    press PC key to restore it, then press step
+0035   0000             ;
+0036   0000             ;  27 February 2015
+0037   0000             ; lower brightness of the 7-segment
+0038   0000             ; calibrate beep frequency to 523Hz
+0039   0000             ; 2 March 2015
+0040   0000             ; add hex file download using MOS hex format
+0041   0000             ; now the board can accept both Intel and MOS hex file format. Tested with TASM assembler
+0042   0000             ; no error, the GPIO1 will display 0D (CR), if error it will show 01.
+0043   0000             ;
+0044   0000             ; 21 March 2016 fix cold boot message, make beep on cold boot  
+0045   0000             ; 6 August 2016 adjust brightness control for number 1 and 1. 
+0046   0000             ;               adjust beep frequency
+0047   0000             
+0048   0000             
+0049   0000             
+0050   0000             
+0051   0000             ; address of the I/O ports
+0052   0000             
+0053   0000             GPIO1   .EQU 8000H
+0054   0000             PORT0   .EQU 8001H
+0055   0000             PORT1   .EQU 8002H
+0056   0000             PORT2   .EQU 8003H
+0057   0000             
+0058   0000             DIGIT   .EQU 8002H
+0059   0000             SEG7    .EQU 8003H
+0060   0000             KIN     .EQU 8001H
+0061   0000              
+0062   0000             
+0063   0000                 
+0064   0000             
+0065   0000              ; page zero register definition
+0066   0000              ; LOCATION $00 TO $7F ARE 128 BYTES FOR USER PROGRAM TESTING 
+0067   0000                      
+0068   0000             	 .DSEG
+0069   0080             	 .ORG 80H
+0070   0080             
+0071   0080             ; zero page memory definitions for monitor use       
+0072   0080             REG_E   .BLOCK 1
+0073   0081             REG_D   .BLOCK 1
+0074   0082             REG_B   .BLOCK 1
+0075   0083             REG_C   .BLOCK 1
+0076   0084             HL      .BLOCK 2           ; 84H = L 85H = H
+0077   0086             DE      .BLOCK 2
+0078   0088             REG_A   .BLOCK 1
+0079   0089             
+0080   0089             _ERROR  .BLOCK 1           ; ERROR FLAG FOR INTEL HEX FILE DOWNLOADING
+0081   008A             BCC     .BLOCK 2           ; BYTE CHECK SUM
+0082   008C             BUFFER  .BLOCK 6          ; 8BH - 90H PAGE ZERO DISPLAY BUFFER
+0083   0092             INVALID .BLOCK 1          ; INVALID KEY HAS BEEN PRESSED FLAG BIT
+0084   0093                                       ; 0 VALID
+0085   0093             			  ; 1 INVALID
+0086   0093             
+0087   0093             KEY     .BLOCK 1
+0088   0094             STATE   .BLOCK 1
+0089   0095             ZERO_FLAG .BLOCK 1          ; ZERO WHEN HEX KEY PRESSED FOR ADDRESS OR DATA KEY
+0090   0096             
+0091   0096             DISPLAY .BLOCK 2         ; display address 
+0092   0098             
+0093   0098             PC_USER  .BLOCK 2       ; FOR SAVING CURRENT PC, ON RESET, IT SETS TO 200H 
+0094   009A             USER_A  .BLOCK 1
+0095   009B             USER_X  .BLOCK 1
+0096   009C             USER_Y  .BLOCK 1
+0097   009D             USER_S  .BLOCK 1         ; USER STACK POINTER
+0098   009E             USER_P  .BLOCK 1         ; PROGRAM STATUS REGISTER
+0099   009F             SAVE_SP .BLOCK 1         ; SAVE SYSTEM STACK 
+0100   00A0             
+0101   00A0             START_ADDRESS .BLOCK 2
+0102   00A2             DESTINATION  .BLOCK 2    ; FOR OFFSET BYTE CALCULATION  
+0103   00A4             OFFSET_BYTE .BLOCK 2     ; OFFSET BYTE = DESTINATION - START_ADDRESS
+0104   00A6             COLD    .BLOCK 1         ; COLD BOOT OR WARM BOOT 
+0105   00A7             
+0106   00A7             REPDELAY .BLOCK 1
+0107   00A8             SAVE_X   .BLOCK 1
+0108   00A9             SAVE_Y   .BLOCK 1
+0109   00AA             
+0110   00AA             DEBUG    .BLOCK 2      ; FOR PROGRAM DEBUGGING
+0111   00AC             
+0112   00AC             
+0113   00AC              
+0114   00AC                       .CSEG 
+0115   00AC             
+0116   C000                       .ORG 0C000H    ; START ADDRESS FOR ROM
+0117   C000                     ;  .ORG 1000H     ; START ADDRESS FOR CODE TESTING IN RAM
+0118   C000             
+0119   C000 A9 BF                       LDA #$BF ; turn off break signal
+0120   C002 8D 02 80    		STA PORT1
+0121   C005 A9 00       		LDA #0
+0122   C007 8D 03 80    		STA PORT2 ; turn of 7-segment
+0123   C00A             	
+0124   C00A             	; power up delay
+0125   C00A             
+0126   C00A A2 00       		LDX #0
+0127   C00C CA          POWER_UP_DELAY	DEX 
+0128   C00D D0 FD       	        BNE POWER_UP_DELAY
+0129   C00F             
+0130   C00F                      ; jump to main code
+0131   C00F             
+0132   C00F 4C 89 C8    	        JMP MAIN
+0133   C012             
+0134   C012             ;----------------------- 2400 BIT/S SOFTWARE UART ---------------------------------
+0135   C012             ; one bit delay for 2400 bit/s UART
+0136   C012             
+0137   C012 A0 4C       BIT_DELAY LDY #76      ; 1190 Hz TEST AT 1MHZ OSCILLATOR
+0138   C014 88          LOOP      DEY
+0139   C015 D0 FD                 BNE LOOP
+0140   C017 60          	  RTS
+0141   C018             
+0142   C018             ; 1.5 bit delay
+0143   C018             
+0144   C018 A0 72       BIT1_5_DELAY LDY #114      ; DELAY 1.5 BIT
+0145   C01A 88          LOOP1      DEY
+0146   C01B D0 FD                 BNE LOOP1
+0147   C01D 60          	  RTS
+0148   C01E             
+0149   C01E             ; SEND ASCII LETTER TO TERMINAL
+0150   C01E             ; ENTRY: A
+0151   C01E             
+0152   C01E 85 80       SEND_BYTE: STA REG_E  ; SAVE ACCUMULATOR
+0153   C020                          
+0154   C020 A9 3F                 LDA #3FH    ; start bit is zero
+0155   C022 8D 02 80    	  STA PORT1
+0156   C025 20 12 C0              JSR BIT_DELAY    ; delay one bit
+0157   C028             	  
+0158   C028 A9 08                 LDA #8      ; 8-data bit wil be sent
+0159   C02A 85 81       	  STA REG_D
+0160   C02C                                
+0161   C02C A5 80       CHK_BIT:   LDA REG_E
+0162   C02E 29 01                  AND #1
+0163   C030 F0 08       	   BEQ SEND_ZERO
+0164   C032                       
+0165   C032 A9 BF       	   LDA #0BFH
+0166   C034 8D 02 80    	   STA PORT1
+0167   C037             
+0168   C037 4C 42 C0               JMP NEXT_BIT
+0169   C03A             	  
+0170   C03A                          
+0171   C03A A9 3F       SEND_ZERO: LDA #3FH
+0172   C03C 8D 02 80               STA PORT1
+0173   C03F 4C 42 C0    	   JMP NEXT_BIT
+0174   C042                         
+0175   C042 20 12 C0    NEXT_BIT:  JSR BIT_DELAY
+0176   C045                  
+0177   C045 46 80                  LSR REG_E
+0178   C047 C6 81       	   DEC REG_D
+0179   C049 D0 E1                  BNE CHK_BIT
+0180   C04B                       
+0181   C04B A9 BF                  LDA #0BFH
+0182   C04D 8D 02 80    	   STA PORT1
+0183   C050 20 12 C0    	   JSR BIT_DELAY
+0184   C053 60          	   RTS
+0185   C054             
+0186   C054             
+0187   C054             ; RECEIVE BYTE FROM 2400 BIT/S TERMINAL
+0188   C054             ; EXIT: A
+0189   C054             
+0190   C054 AD 01 80    CIN	 LDA PORT0 
+0191   C057 29 80                AND #80H
+0192   C059 D0 F9       	 BNE CIN
+0193   C05B                      
+0194   C05B 20 18 C0    	 JSR BIT1_5_DELAY
+0195   C05E             	 
+0196   C05E A9 07       	 LDA #7
+0197   C060 85 81       	 STA REG_D
+0198   C062 A9 00       	 LDA #0
+0199   C064 85 80       	 STA REG_E
+0200   C066             
+0201   C066                 
+0202   C066                         
+0203   C066 AD 01 80    CHK_BIT_RX   LDA PORT0
+0204   C069 29 80                  AND #80H
+0205   C06B D0 09                  BNE BIT_IS_ONE
+0206   C06D                        
+0207   C06D A5 80                  LDA REG_E
+0208   C06F 29 7F       	   AND #7FH
+0209   C071 85 80       	   STA REG_E
+0210   C073 4C 7F C0    	   JMP NEXT_BIT_RX
+0211   C076                          
+0212   C076 A5 80       BIT_IS_ONE LDA REG_E
+0213   C078 09 80                  ORA #80H
+0214   C07A 85 80       	   STA REG_E
+0215   C07C 4C 7F C0               JMP NEXT_BIT_RX
+0216   C07F                         
+0217   C07F 20 12 C0    NEXT_BIT_RX  JSR BIT_DELAY
+0218   C082                  
+0219   C082 46 80                  LSR REG_E
+0220   C084             
+0221   C084 C6 81                  DEC REG_D
+0222   C086 D0 DE       	   BNE CHK_BIT_RX
+0223   C088             
+0224   C088 20 12 C0    	   JSR BIT_DELAY    ; CENTER OF STOP BIT
+0225   C08B                        
+0226   C08B A5 80       	   LDA REG_E 
+0227   C08D             
+0228   C08D 60          	   RTS
+0229   C08E             
+0230   C08E             
+0231   C08E             ; PRINT TEXT FROM STRING AREA
+0232   C08E             ; ENTRY: X POINTED TO OFFSET
+0233   C08E             
+0234   C08E BD 00 EF    PSTRING   LDA TEXT1,X
+0235   C091 C9 00                 CMP #0
+0236   C093 D0 01       	  BNE PRINT_IT
+0237   C095 60          	  RTS
+0238   C096             
+0239   C096 20 1E C0    PRINT_IT  JSR SEND_BYTE
+0240   C099 E8                    INX
+0241   C09A 4C 8E C0    	  JMP PSTRING
+0242   C09D             
+0243   C09D             CR        .EQU 0DH
+0244   C09D             LF        .EQU 0AH
+0245   C09D             EOS       .EQU 0 
+0246   C09D             
+0247   C09D             ;NEW LINE
+0248   C09D             ; PRINT CR, LF
+0249   C09D             
+0250   C09D A9 0D       NEW_LINE     LDA #0DH
+0251   C09F 20 1E C0    	     JSR SEND_BYTE
+0252   C0A2 A9 0A       	     LDA #0AH
+0253   C0A4 20 1E C0    	     JSR SEND_BYTE
+0254   C0A7 60          	     RTS
+0255   C0A8             
+0256   C0A8             
+0257   C0A8             ; WRITE NIBBLE TO TERMINAL
+0258   C0A8 29 0F       OUT1X        AND #0FH  
+0259   C0AA 18                       CLC
+0260   C0AB 69 30       	     ADC #30H 
+0261   C0AD C9 3A                    CMP  #3AH
+0262   C0AF 90 03       	     BCC OUT1X1
+0263   C0B1 18          	     CLC
+0264   C0B2 69 07       	     ADC #7
+0265   C0B4 20 1E C0    OUT1X1	     JSR SEND_BYTE
+0266   C0B7 60          	     RTS
+0267   C0B8             
+0268   C0B8             
+0269   C0B8 48          OUT2X        PHA
+0270   C0B9                          
+0271   C0B9 4A          	     LSR A
+0272   C0BA 4A                       LSR A
+0273   C0BB 4A          	     LSR A
+0274   C0BC 4A          	     LSR A
+0275   C0BD             	     
+0276   C0BD             	   ;  STA GPIO1
+0277   C0BD             
+0278   C0BD 20 A8 C0    	     JSR OUT1X
+0279   C0C0 68          	     PLA
+0280   C0C1 20 A8 C0    	     JSR OUT1X
+0281   C0C4 60          	     RTS
+0282   C0C5             
+0283   C0C5             
+0284   C0C5             ; INCREMENT HL
+0285   C0C5             ; INCREMENT 16-BIT POINTER FOR 16-BIT MEMORY ACCESS
+0286   C0C5             
+0287   C0C5 18          INC_HL       CLC
+0288   C0C6 A5 84                    LDA HL
+0289   C0C8 69 01       	     ADC #1
+0290   C0CA 85 84       	     STA HL
+0291   C0CC A5 85       	     LDA HL+1
+0292   C0CE 69 00       	     ADC #0
+0293   C0D0 85 85       	     STA HL+1
+0294   C0D2 60          	     RTS
+0295   C0D3             
+0296   C0D3             
+0297   C0D3             ; PRINT LINE OF MEMORY POINTED TO HL
+0298   C0D3             
+0299   C0D3 20 9D C0    PRINT_LINE   JSR NEW_LINE
+0300   C0D6 A9 10                    LDA #16
+0301   C0D8 85 83                    STA REG_C
+0302   C0DA             
+0303   C0DA             	     
+0304   C0DA             	     
+0305   C0DA A5 85                    LDA HL+1
+0306   C0DC 20 B8 C0    	     JSR OUT2X
+0307   C0DF A5 84       	     LDA HL
+0308   C0E1 20 B8 C0    	     JSR OUT2X
+0309   C0E4             
+0310   C0E4 A9 3A       	     LDA #':'
+0311   C0E6 20 1E C0    	     JSR SEND_BYTE
+0312   C0E9             
+0313   C0E9 A0 00       PRINT_LINE2  LDY #0
+0314   C0EB B1 84                    LDA (HL),Y
+0315   C0ED             	     
+0316   C0ED 20 B8 C0    	     JSR OUT2X
+0317   C0F0             	      
+0318   C0F0 A9 20       	     LDA #' '
+0319   C0F2 20 1E C0    	     JSR SEND_BYTE
+0320   C0F5             	     
+0321   C0F5 20 C5 C0    	     JSR INC_HL
+0322   C0F8             	     
+0323   C0F8 C6 83       	     DEC REG_C
+0324   C0FA             	    
+0325   C0FA D0 ED       	     BNE PRINT_LINE2
+0326   C0FC             
+0327   C0FC 60          	     RTS
+0328   C0FD             
+0329   C0FD             ; CONVERT ASCII TO HEX
+0330   C0FD             ; ENTRY: A
+0331   C0FD             
+0332   C0FD 38          TO_HEX     SEC
+0333   C0FE E9 30                  SBC #30H
+0334   C100 C9 10       	   CMP #10H
+0335   C102 90 05       	   BCC ZERO_NINE
+0336   C104 29 DF       	   AND #11011111B
+0337   C106 38          	   SEC
+0338   C107 E9 07       	   SBC #7
+0339   C109             
+0340   C109 60          ZERO_NINE  RTS
+0341   C10A             
+0342   C10A             ; CONVERT TWO ASCII LETTERS  TO SINGLE BYTE
+0343   C10A             ; EXIT: A
+0344   C10A             
+0345   C10A 20 54 C0    GET_HEX    JSR CIN       
+0346   C10D 20 FD C0    	   JSR TO_HEX
+0347   C110 0A                     ASL A
+0348   C111 0A          	   ASL A
+0349   C112 0A          	   ASL A
+0350   C113 0A          	   ASL A
+0351   C114             
+0352   C114 8D 00 80    	   STA GPIO1
+0353   C117             	   
+0354   C117 85 88       	   STA REG_A
+0355   C119             	   
+0356   C119 20 54 C0    	   JSR CIN
+0357   C11C 20 FD C0    	   JSR TO_HEX
+0358   C11F 18          	   CLC
+0359   C120 65 88       	   ADC REG_A
+0360   C122             
+0361   C122 60          	   RTS
+0362   C123             
+0363   C123             ; CONVERT TWO ASCII LETTERS  TO SINGLE BYTE
+0364   C123             ; EXIT: A
+0365   C123             
+0366   C123 20 54 C0    GET_HEX2    JSR CIN     
+0367   C126 48                     PHA
+0368   C127 20 1E C0    	   JSR SEND_BYTE   ; ECHO TO TERMINAL
+0369   C12A 68          	   PLA
+0370   C12B 20 FD C0    	   JSR TO_HEX
+0371   C12E 0A                     ASL A
+0372   C12F 0A          	   ASL A
+0373   C130 0A          	   ASL A
+0374   C131 0A          	   ASL A
+0375   C132             
+0376   C132 8D 00 80    	   STA GPIO1
+0377   C135             	   
+0378   C135 85 88       	   STA REG_A
+0379   C137             	   
+0380   C137 20 54 C0    	   JSR CIN
+0381   C13A 48          	   PHA
+0382   C13B 20 1E C0    	   JSR SEND_BYTE
+0383   C13E 68          	   PLA
+0384   C13F 20 FD C0    	   JSR TO_HEX
+0385   C142 18          	   CLC
+0386   C143 65 88       	   ADC REG_A
+0387   C145             
+0388   C145 60          	   RTS
+0389   C146             
+0390   C146             ;-----------------------------------------------------
+0391   C146             SET_NEW_ADDRESS
+0392   C146             
+0393   C146 20 1E C0              JSR SEND_BYTE
+0394   C149 A2 1C       	  LDX #PROMPT&00FFH
+0395   C14B 20 8E C0              JSR PSTRING
+0396   C14E 20 23 C1    	  JSR GET_HEX2
+0397   C151 85 85       	  STA HL+1
+0398   C153 20 23 C1    	  JSR GET_HEX2
+0399   C156 85 84       	  STA HL
+0400   C158 60          	  RTS
+0401   C159             
+0402   C159 18          ADD_BCC   CLC
+0403   C15A 65 8A                 ADC BCC
+0404   C15C 85 8A       	  STA BCC
+0405   C15E 60          	  RTS
+0406   C15F             
+0407   C15F             ;---------------------------------------------------------
+0408   C15F             ; GET_RECORD READS INTEL HEX FILE AND SAVE TO MEMORY
+0409   C15F             
+0410   C15F A9 00       GET_RECORD LDA #0
+0411   C161 85 89       	   STA _ERROR
+0412   C163             
+0413   C163 20 54 C0    GET_RECORD1 JSR CIN
+0414   C166 C9 3A       	   CMP #':'
+0415   C168 F0 07       	   BEQ GET_RECORD2
+0416   C16A             	   
+0417   C16A C9 3B       	   CMP #$3B          ; ';'
+0418   C16C D0 F5       	   BNE GET_RECORD1
+0419   C16E             
+0420   C16E 4C ED C1    	   JMP GET_MOS2
+0421   C171             	   
+0422   C171             	   
+0423   C171             GET_RECORD2
+0424   C171             
+0425   C171 A9 00       	   LDA #0	
+0426   C173 85 8A       	   STA BCC
+0427   C175             	 
+0428   C175 20 0A C1    	   JSR GET_HEX
+0429   C178 85 83       	   STA REG_C     ; GET NUMBER OF BYTE
+0430   C17A             	   
+0431   C17A 20 59 C1    	   JSR ADD_BCC
+0432   C17D             
+0433   C17D 20 0A C1    	   JSR GET_HEX
+0434   C180 85 85                  STA HL+1
+0435   C182             	   
+0436   C182 20 59 C1    	   JSR ADD_BCC
+0437   C185             
+0438   C185 20 0A C1    	   JSR GET_HEX
+0439   C188 85 84       	   STA HL        ; GET LOAD ADDRESS
+0440   C18A             
+0441   C18A 20 59 C1    	   JSR ADD_BCC
+0442   C18D             
+0443   C18D 20 0A C1    	   JSR GET_HEX
+0444   C190             
+0445   C190 C9 00       	   CMP #0
+0446   C192             
+0447   C192 F0 14       	   BEQ DATA_RECORD
+0448   C194             	   
+0449   C194 20 54 C0    WAIT_CR	   JSR CIN
+0450   C197 C9 0D       	   CMP #0DH
+0451   C199 D0 F9       	   BNE WAIT_CR
+0452   C19B             	   
+0453   C19B 8D 00 80    	   STA GPIO1
+0454   C19E             	   
+0455   C19E A5 89       	   LDA _ERROR
+0456   C1A0 C9 01       	   CMP #1
+0457   C1A2 D0 03       	   BNE NOERROR
+0458   C1A4             
+0459   C1A4             ; SHOW ERROR ON LED
+0460   C1A4             	;  JSR OUT_OFF_RANGE
+0461   C1A4             	   
+0462   C1A4 8D 00 80    	   STA GPIO1
+0463   C1A7             
+0464   C1A7             NOERROR   
+0465   C1A7 60                     RTS
+0466   C1A8             
+0467   C1A8             DATA_RECORD
+0468   C1A8             
+0469   C1A8 20 0A C1    	   JSR GET_HEX
+0470   C1AB A0 00       	   LDY #0
+0471   C1AD 91 84       	   STA (HL),Y	; WRITE TO MEMORY
+0472   C1AF             	   
+0473   C1AF 20 59 C1    	   JSR ADD_BCC
+0474   C1B2             
+0475   C1B2 8D 00 80    	   STA GPIO1
+0476   C1B5             	   
+0477   C1B5 20 C5 C0    	   JSR INC_HL
+0478   C1B8             	   
+0479   C1B8 C6 83       	   DEC REG_C
+0480   C1BA D0 EC       	   BNE DATA_RECORD ; UNTIL C=0
+0481   C1BC             
+0482   C1BC A5 8A                  LDA BCC
+0483   C1BE 49 FF       	   EOR #0FFH    ; ONE'S COMPLEMENT
+0484   C1C0 18          	   CLC          
+0485   C1C1 69 01       	   ADC #1       ; TWO'S COMPLEMENT
+0486   C1C3 85 8A       	   STA BCC
+0487   C1C5             	   
+0488   C1C5             	   
+0489   C1C5 20 0A C1    	   JSR GET_HEX	   ; GET BYTE CHECK SUM
+0490   C1C8             	   
+0491   C1C8 C5 8A       	   CMP BCC	; COMPARE WITH BYTE CHECK SUM
+0492   C1CA F0 04       	   BEQ SKIP11
+0493   C1CC             	  
+0494   C1CC A9 01       	   LDA #1
+0495   C1CE 85 89       	   STA _ERROR    ; ERROR FLAG =1
+0496   C1D0             	   
+0497   C1D0             	   
+0498   C1D0             SKIP11
+0499   C1D0             	   
+0500   C1D0 4C 63 C1    	   JMP GET_RECORD1     ; NEXT LINE 
+0501   C1D3             
+0502   C1D3             
+0503   C1D3             
+0504   C1D3             SEND_PROMPT
+0505   C1D3             
+0506   C1D3 20 9D C0              JSR NEW_LINE
+0507   C1D6 A5 85                  LDA HL+1
+0508   C1D8 20 B8 C0    	   JSR OUT2X
+0509   C1DB A5 84       	   LDA HL
+0510   C1DD 20 B8 C0    	   JSR OUT2X
+0511   C1E0             
+0512   C1E0                      
+0513   C1E0 A2 1C       	  LDX #PROMPT&00FFH
+0514   C1E2 20 8E C0              JSR PSTRING
+0515   C1E5 60                    RTS
+0516   C1E6             
+0517   C1E6             ;===================================================================
+0518   C1E6             ; get MOS record
+0519   C1E6             ; sample MOS record
+0520   C1E6             ;
+0521   C1E6             ;18 0200 A9018500182600A5008D0080A200A00088D0FDCAD0F84C05 09B3
+0522   C1E6             ;01 0218 02 001D
+0523   C1E6             ;00
+0524   C1E6             ;
+0525   C1E6             ; 18 is number of byte
+0526   C1E6             ; 0200 is load address
+0527   C1E6             ; A9, 01, 85.. data byte
+0528   C1E6             ; 09B3 is 16-bit check sum
+0529   C1E6             
+0530   C1E6             
+0531   C1E6             
+0532   C1E6             GET_MOS1
+0533   C1E6 20 54 C0               JSR CIN
+0534   C1E9 C9 3B       	   CMP #$3B         ; ';'
+0535   C1EB D0 F9       	   BNE GET_MOS1
+0536   C1ED             
+0537   C1ED             GET_MOS2
+0538   C1ED             
+0539   C1ED A9 00       	   LDA #0	
+0540   C1EF 85 8A       	   STA BCC
+0541   C1F1 85 8B       	   STA BCC+1  ; MOS uses 16-bit checksum
+0542   C1F3             
+0543   C1F3             	 
+0544   C1F3 20 0A C1    	   JSR GET_HEX
+0545   C1F6 85 83       	   STA REG_C     ; GET NUMBER OF BYTE
+0546   C1F8             
+0547   C1F8 C9 00       	   CMP #0
+0548   C1FA F0 16       	   BEQ END_RECORD
+0549   C1FC             	   
+0550   C1FC 20 5A C2    	   JSR ADD_BCC_MOS
+0551   C1FF             
+0552   C1FF 20 0A C1    	   JSR GET_HEX
+0553   C202 85 85                  STA HL+1
+0554   C204             	   
+0555   C204 20 5A C2    	   JSR ADD_BCC_MOS
+0556   C207             
+0557   C207 20 0A C1    	   JSR GET_HEX
+0558   C20A 85 84       	   STA HL        ; GET LOAD ADDRESS
+0559   C20C             
+0560   C20C 20 5A C2    	   JSR ADD_BCC_MOS
+0561   C20F             
+0562   C20F 4C 26 C2    	   JMP DATA_RECORD2
+0563   C212             	   	   
+0564   C212 20 54 C0    END_RECORD JSR CIN
+0565   C215 C9 0D       	   CMP #0DH
+0566   C217 D0 F9       	   BNE END_RECORD
+0567   C219             	   
+0568   C219 8D 00 80    	   STA GPIO1
+0569   C21C             	   
+0570   C21C A5 89       	   LDA _ERROR
+0571   C21E C9 01       	   CMP #1
+0572   C220 D0 03       	   BNE NOERROR2
+0573   C222             
+0574   C222             ; SHOW ERROR ON LED
+0575   C222             	   
+0576   C222 8D 00 80    	   STA GPIO1
+0577   C225             	   
+0578   C225             
+0579   C225             NOERROR2   
+0580   C225 60                     RTS
+0581   C226             
+0582   C226             DATA_RECORD2
+0583   C226             
+0584   C226 20 0A C1    	   JSR GET_HEX
+0585   C229 A0 00       	   LDY #0
+0586   C22B 91 84       	   STA (HL),Y	; WRITE TO MEMORY
+0587   C22D             	   
+0588   C22D 20 5A C2    	   JSR ADD_BCC_MOS
+0589   C230             
+0590   C230 8D 00 80    	   STA GPIO1
+0591   C233             	   
+0592   C233 20 C5 C0    	   JSR INC_HL
+0593   C236             	   
+0594   C236 C6 83       	   DEC REG_C
+0595   C238 D0 EC       	   BNE DATA_RECORD2 ; UNTIL C=0
+0596   C23A             
+0597   C23A             ; now get 16-bit check sum          
+0598   C23A             	   
+0599   C23A 20 0A C1    	   JSR GET_HEX	   ; GET 16-bit CHECK SUM
+0600   C23D 85 85       	   STA HL+1
+0601   C23F             	;   STA DEBUG+1
+0602   C23F             
+0603   C23F 20 0A C1    	   JSR GET_HEX
+0604   C242 85 84       	   STA HL          ; check sum now stored in HL+1 and HL
+0605   C244                      ;  STA DEBUG
+0606   C244             
+0607   C244 A5 8B       	   LDA BCC+1
+0608   C246 C5 85       	   CMP HL+1
+0609   C248 D0 09       	   BNE error_mos
+0610   C24A A5 8A       	   LDA BCC
+0611   C24C C5 84       	   CMP HL
+0612   C24E D0 03       	   BNE error_mos
+0613   C250             	   
+0614   C250 4C 57 C2    	   JMP SKIP12
+0615   C253             
+0616   C253             error_mos
+0617   C253 A9 01       	   LDA #1
+0618   C255 85 89       	   STA _ERROR    ; ERROR FLAG =1
+0619   C257             	   
+0620   C257             	   
+0621   C257             SKIP12
+0622   C257             	   
+0623   C257 4C E6 C1    	   JMP GET_MOS1     ; NEXT LINE 
+0624   C25A             
+0625   C25A             
+0626   C25A             ; add 16-bit check sum, stores in BCC+1 and BCC
+0627   C25A             
+0628   C25A             ADD_BCC_MOS
+0629   C25A             
+0630   C25A 18                    CLC
+0631   C25B 65 8A                 ADC BCC
+0632   C25D 85 8A       	  STA BCC
+0633   C25F A9 00       	  LDA #0
+0634   C261 65 8B       	  ADC BCC+1
+0635   C263 85 8B       	  STA BCC+1
+0636   C265 60          	  RTS
+0637   C266             
+0638   C266             
+0639   C266             ;--------------------------------- END UART CODE ------------------------------------
+0640   C266             
+0641   C266             ; SCAN DISPLAY ONLY
+0642   C266             ; ENTRY: X POINTED TO NEXT MESSAGE BYTE
+0643   C266             ;        FIX_MESSAGE LOCATION
+0644   C266             
+0645   C266             SCAN2:
+0646   C266 86 83       	STX REG_C
+0647   C268 A9 01       	LDA #1
+0648   C26A 85 80       	STA REG_E
+0649   C26C             	
+0650   C26C A9 06       	LDA #6
+0651   C26E 85 84       	STA HL
+0652   C270             				
+0653   C270             ;to the active column.
+0654   C270 A5 80       KCOL2   LDA REG_E	
+0655   C272             
+0656   C272 49 FF              	EOR #0FFH               ; COMPLEMENT IT
+0657   C274             	
+0658   C274 29 BF       	AND #0BFH               ; BREAK MUST BE LOGIC '0' TO DISABLE
+0659   C276 8D 02 80    	STA DIGIT
+0660   C279             
+0661   C279 BD FA C8    	LDA START_MSG,X
+0662   C27C 8D 03 80    	STA SEG7
+0663   C27F             
+0664   C27F A0 05       	LDY #$5
+0665   C281             
+0666   C281 88          DELAY5	DEY
+0667   C282 D0 FD       	BNE DELAY5
+0668   C284             
+0669   C284 A9 00       	LDA #0                 ; TURN LED OFF
+0670   C286 8D 03 80    	STA SEG7
+0671   C289             
+0672   C289 A0 14       	LDY #20
+0673   C28B 88          DELAY55	DEY
+0674   C28C D0 FD       	BNE DELAY55
+0675   C28E             
+0676   C28E             	
+0677   C28E E8          	INX
+0678   C28F             	
+0679   C28F A5 80       	LDA REG_E
+0680   C291 0A          	ASL A
+0681   C292 85 80       	STA REG_E
+0682   C294             		
+0683   C294 C6 84       	DEC  HL
+0684   C296 D0 D8       	BNE  KCOL2
+0685   C298             
+0686   C298 A6 83       	LDX REG_C 
+0687   C29A             
+0688   C29A 60          	RTS
+0689   C29B             
+0690   C29B             
+0691   C29B             ; SCAN DISPLAY AND KEYBOARD
+0692   C29B             ; ENTRY: DISPLAY BUFFER IN PAGE 0
+0693   C29B             ; EXIT: KEY = -1 NO KEY PRESSED
+0694   C29B             ;       KEY >=0 KEY POSITION
+0695   C29B             ; REGSITERS USED: X,A,Y
+0696   C29B             
+0697   C29B             SCAN1:
+0698   C29B             
+0699   C29B             	
+0700   C29B A2 00       	LDX #0
+0701   C29D             	
+0702   C29D A9 00       	LDA #0
+0703   C29F 85 83       	STA REG_C
+0704   C2A1             	
+0705   C2A1 A9 FF       	LDA #-1
+0706   C2A3 85 93       	STA KEY
+0707   C2A5             	
+0708   C2A5 A9 01       	LDA #1
+0709   C2A7 85 80       	STA REG_E
+0710   C2A9             	
+0711   C2A9 A9 06       	LDA #6
+0712   C2AB 85 84       	STA HL
+0713   C2AD             				
+0714   C2AD             ;to the active column.
+0715   C2AD A5 80       KCOL    LDA REG_E	
+0716   C2AF             
+0717   C2AF 49 FF              	EOR #0FFH               ; COMPLEMENT IT
+0718   C2B1 29 BF       	AND #0BFH               ; MUST BE LOW FOR BREAK
+0719   C2B3             
+0720   C2B3 8D 02 80    	STA DIGIT
+0721   C2B6             
+0722   C2B6 B5 8C       	LDA BUFFER,X
+0723   C2B8 8D 03 80    	STA SEG7
+0724   C2BB             
+0725   C2BB 29 BF               AND #~$40              ; mask off dot 
+0726   C2BD C9 30               CMP #30H	; is it number 1	
+0727   C2BF D0 03       	BNE NOT_ONE
+0728   C2C1 4C C8 C2    	JMP IT_IS_ONE
+0729   C2C4             
+0730   C2C4             
+0731   C2C4 C9 02       NOT_ONE CMP #2
+0732   C2C6 D0 05               BNE NOT_LINE   ; is it line
+0733   C2C8             
+0734   C2C8             IT_IS_ONE
+0735   C2C8             	
+0736   C2C8 A0 05       	LDY #$5
+0737   C2CA 4C CF C2            JMP DELAY3
+0738   C2CD             
+0739   C2CD A0 15       NOT_LINE LDY #$15
+0740   C2CF 88          DELAY3	DEY
+0741   C2D0 D0 FD       	BNE DELAY3
+0742   C2D2             
+0743   C2D2 A9 00       	LDA #0                 ; TURN LED OFF
+0744   C2D4 8D 03 80    	STA SEG7
+0745   C2D7             
+0746   C2D7 A0 32       	LDY #50
+0747   C2D9 88          DELAY10	DEY
+0748   C2DA D0 FD       	BNE DELAY10
+0749   C2DC             	
+0750   C2DC             
+0751   C2DC A9 06       	LDA #6
+0752   C2DE 85 82       	STA REG_B
+0753   C2E0             	
+0754   C2E0 AD 01 80    	LDA KIN
+0755   C2E3             	
+0756   C2E3 85 81       	STA  REG_D
+0757   C2E5             
+0758   C2E5             	
+0759   C2E5 46 81       KROW	LSR  REG_D		;Rotate D 1 bit right, bit 0
+0760   C2E7             				;of D will be rotated into
+0761   C2E7 B0 04       	BCS NOKEY			;carry flag.
+0762   C2E9             	
+0763   C2E9 A5 83       	LDA REG_C
+0764   C2EB 85 93       	STA KEY
+0765   C2ED             
+0766   C2ED E6 83       NOKEY	INC REG_C		;Increase current key-code by 1.
+0767   C2EF             	
+0768   C2EF C6 82       	DEC REG_B
+0769   C2F1 D0 F2       	BNE KROW
+0770   C2F3             	
+0771   C2F3 E8          	INX
+0772   C2F4             	
+0773   C2F4 A5 80       	LDA REG_E
+0774   C2F6 0A          	ASL A
+0775   C2F7 85 80       	STA REG_E
+0776   C2F9             		
+0777   C2F9             	
+0778   C2F9 C6 84       	DEC  HL
+0779   C2FB D0 B0       	BNE  KCOL
+0780   C2FD 60          	RTS
+0781   C2FE             
+0782   C2FE             
+0783   C2FE A0 C8       DEBOUNCE LDY #200
+0784   C300 88          DELAY4   DEY
+0785   C301 D0 FD       	 BNE DELAY4
+0786   C303 60          	 RTS
+0787   C304             
+0788   C304             ;--------------------------------------------------------------------
+0789   C304             
+0790   C304 20 9B C2    SCANKEY JSR SCAN1
+0791   C307 A5 93               LDA KEY
+0792   C309 C9 FF       	CMP #-1
+0793   C30B F0 16       	BEQ KEY_RELEASED
+0794   C30D             
+0795   C30D AD 01 80    	LDA PORT0
+0796   C310 29 40       	AND #40H
+0797   C312 D0 F0       	BNE SCANKEY
+0798   C314             
+0799   C314             ; IF REPEAT KEY WAS PRESSED, SLOW DOWN IT
+0800   C314 A9 20                 LDA #20H
+0801   C316 85 A7                 STA REPDELAY
+0802   C318             
+0803   C318 20 9B C2    DISPLAY4  JSR SCAN1
+0804   C31B C6 A7       	  DEC REPDELAY
+0805   C31D D0 F9       	  BNE DISPLAY4
+0806   C31F             
+0807   C31F             
+0808   C31F A2 00                 LDX #0         ; THEN REPEAT KEY PRESS        
+0809   C321 86 92                 STX INVALID    ; RESET INVALID FLAG 
+0810   C323             KEY_RELEASED
+0811   C323             
+0812   C323 20 FE C2    	JSR DEBOUNCE
+0813   C326             
+0814   C326             UNTIL_PRESS
+0815   C326             	
+0816   C326 20 9B C2    	JSR SCAN1
+0817   C329 A5 93               LDA KEY
+0818   C32B C9 FF       	CMP #-1
+0819   C32D F0 F7       	BEQ UNTIL_PRESS
+0820   C32F             
+0821   C32F 20 FE C2    	JSR DEBOUNCE
+0822   C332             
+0823   C332 20 9B C2    	JSR SCAN1
+0824   C335             
+0825   C335 A5 93       	LDA KEY
+0826   C337 AA          	TAX
+0827   C338 BD 16 C9    	LDA KEYTAB,X    ; OPEN TABLE
+0828   C33B             		
+0829   C33B             	;STA GPIO1       ; TEST NOW A IS INTERNAL CODE 
+0830   C33B 60          	RTS
+0831   C33C             
+0832   C33C             
+0833   C33C             ; CONVERT LOW NIBBLE IN ACCUMULATOR TO 7-SEGMENT PATTERN
+0834   C33C             ; ENTRY: A
+0835   C33C             ; EXIT: A
+0836   C33C             
+0837   C33C             NIBBLE_7SEG 
+0838   C33C AA                      TAX
+0839   C33D BD 06 C9                LDA SEGTAB,X
+0840   C340 60          	    RTS
+0841   C341             
+0842   C341             
+0843   C341             ; CONVERT BYTE TO 7-SEGMENT PATTERN
+0844   C341             ; ENTRY: A
+0845   C341             ; EXIT: DE
+0846   C341             
+0847   C341 48          BYTE_7SEG   PHA
+0848   C342 29 0F                   AND #0FH
+0849   C344 20 3C C3                JSR NIBBLE_7SEG
+0850   C347 85 86       	    STA DE
+0851   C349 68          	    PLA
+0852   C34A 4A                      LSR A
+0853   C34B 4A          	    LSR A
+0854   C34C 4A          	    LSR A
+0855   C34D 4A          	    LSR A
+0856   C34E 20 3C C3    	    JSR NIBBLE_7SEG
+0857   C351 85 87       	    STA DE+1
+0858   C353 60          	    RTS
+0859   C354             
+0860   C354             ; CONVERT BYTE TO 7-SEGMENT PATTERN AND SAVE TO DISPLAY BUFFER DATA FIELD
+0861   C354             ; ENTRY: A
+0862   C354             
+0863   C354 48          DATA_DISPLAY PHA   ; SAVE ACCUMULATOR
+0864   C355 20 41 C3                 JSR BYTE_7SEG
+0865   C358 A5 86       	     LDA DE
+0866   C35A 85 8C       	     STA BUFFER
+0867   C35C A5 87       	     LDA DE+1
+0868   C35E 85 8D       	     STA BUFFER+1
+0869   C360 68                       PLA
+0870   C361 60          	     RTS
+0871   C362             
+0872   C362             ; CONVERT 16-BIT ADDRESS IN HL AND SAVE IT TO ADDRESS FILED DISPLAY BUFFER
+0873   C362             ; ENTRY: HL
+0874   C362             
+0875   C362             ADDRESS_DISPLAY
+0876   C362             
+0877   C362 A5 84                   LDA HL
+0878   C364 20 41 C3    	    JSR BYTE_7SEG
+0879   C367 A5 86       	    LDA DE
+0880   C369 85 8E       	    STA BUFFER+2
+0881   C36B A5 87       	    LDA DE+1
+0882   C36D 85 8F       	    STA BUFFER+3
+0883   C36F A5 85       	    LDA HL+1
+0884   C371 20 41 C3    	    JSR BYTE_7SEG
+0885   C374 A5 86       	    LDA DE
+0886   C376 85 90       	    STA BUFFER+4
+0887   C378 A5 87       	    LDA DE+1
+0888   C37A 85 91       	    STA BUFFER+5
+0889   C37C 60          	    RTS
+0890   C37D             
+0891   C37D             ;**************************************************************************************88
+0892   C37D             ;
+0893   C37D             ; EXECUTE FUNCTIONS OR HEX KEY ENTERED 
+0894   C37D             ; CHECK HEX KEY OR FUNCTIONS KEY
+0895   C37D             ; ENTRY: A
+0896   C37D             
+0897   C37D C9 10       KEYEXE     CMP #10H
+0898   C37F B0 41       	   BCS FUNCTION_KEY
+0899   C381             
+0900   C381             
+0901   C381             ;HHHHHHHHHHHHHHH   KEY HEX ENTERED HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
+0902   C381             
+0903   C381 85 83                  STA REG_C     ; SAVE HEX KEY
+0904   C383 A5 94       	   LDA STATE
+0905   C385             
+0906   C385 C9 01       	   CMP #1
+0907   C387 D0 05       	   BNE CHK_STATE2
+0908   C389             	   
+0909   C389 A5 83       	   LDA REG_C
+0910   C38B 4C 33 C5    	   JMP HEX_ADDR
+0911   C38E             
+0912   C38E C9 02       CHK_STATE2 CMP #2
+0913   C390 D0 03                  BNE CHK_STATE3
+0914   C392 4C 61 C5    	   JMP HEX_DATA
+0915   C395             
+0916   C395 C9 03       CHK_STATE3 CMP #3
+0917   C397 D0 03                  BNE CHK_STATE5
+0918   C399 4C 3A C7    	   JMP HEX_REG
+0919   C39C             
+0920   C39C C9 05       CHK_STATE5 CMP #5
+0921   C39E D0 03                  BNE CHK_STATE6
+0922   C3A0 4C 1B C5    	   JMP HEX_REL
+0923   C3A3             
+0924   C3A3 C9 06       CHK_STATE6 CMP #6
+0925   C3A5 D0 03                  BNE CHK_STATE7
+0926   C3A7 4C 27 C5    	   JMP HEX_REL6
+0927   C3AA             
+0928   C3AA C9 07       CHK_STATE7 CMP #7
+0929   C3AC D0 03                  BNE CHK_STATE8
+0930   C3AE 4C 03 C5               JMP HEX_SEND_FILE
+0931   C3B1             
+0932   C3B1 C9 08       CHK_STATE8  CMP #8
+0933   C3B3 D0 03                   BNE CHK_STATE9
+0934   C3B5 4C 0F C5    	    JMP HEX_SEND_FILE2
+0935   C3B8             
+0936   C3B8 A5 83       CHK_STATE9  lda REG_C
+0937   C3BA 8D 00 80                sta GPIO1
+0938   C3BD A9 01                   LDA #1         ; INVALID KEY PRESSED
+0939   C3BF 85 92       	    STA INVALID
+0940   C3C1             	    
+0941   C3C1             
+0942   C3C1             
+0943   C3C1             
+0944   C3C1             
+0945   C3C1             ; HEX KEY WAS PRESSED
+0946   C3C1             
+0947   C3C1                        
+0948   C3C1 60          	   RTS
+0949   C3C2             
+0950   C3C2             ;FFFFFFFFFFFFFFFFFFFFFF FUNCTION KEY FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+0951   C3C2             
+0952   C3C2             FUNCTION_KEY
+0953   C3C2             
+0954   C3C2 C9 19                 CMP #19H    ; KEY ADDR
+0955   C3C4 D0 03       	  BNE CHK_FUNC1
+0956   C3C6 4C 90 C4    	  JMP KEY_ADDR
+0957   C3C9             
+0958   C3C9 C9 14       CHK_FUNC1 CMP #14H   ; KEY DATA
+0959   C3CB D0 03                 BNE CHK_FUNC2
+0960   C3CD 4C C0 C4    	  JMP KEY_DATA
+0961   C3D0             
+0962   C3D0 C9 10       CHK_FUNC2 CMP #10H   ; KEY +
+0963   C3D2 D0 03                 BNE CHK_FUNC3
+0964   C3D4 4C 81 C5    	  JMP KEY_INC
+0965   C3D7             
+0966   C3D7 C9 11       CHK_FUNC3 CMP #11H    ; KEY -
+0967   C3D9 D0 03                 BNE CHK_FUNC4
+0968   C3DB 4C DC C5    	  JMP KEY_DEC
+0969   C3DE             
+0970   C3DE C9 18       CHK_FUNC4  CMP #18H
+0971   C3E0 D0 03                  BNE CHK_FUNC5
+0972   C3E2 4C F5 C5    	   JMP KEY_PC
+0973   C3E5             
+0974   C3E5 C9 1B       CHK_FUNC5  CMP #1BH
+0975   C3E7 D0 03                  BNE CHK_FUNC6
+0976   C3E9 4C 09 C6    	   JMP KEY_REG
+0977   C3EC             
+0978   C3EC C9 12       CHK_FUNC6  CMP #12H
+0979   C3EE D0 03                  BNE CHK_FUNC7
+0980   C3F0 4C 5A C6    	   JMP KEY_GO
+0981   C3F3             
+0982   C3F3 C9 1D       CHK_FUNC7  CMP #1DH
+0983   C3F5 D0 03                  BNE CHK_FUNC8
+0984   C3F7 4C 7C C4    	   JMP KEY_REL
+0985   C3FA             
+0986   C3FA C9 1F       CHK_FUNC8  CMP #1FH
+0987   C3FC D0 03                  BNE CHK_FUNC9
+0988   C3FE 4C 4D C4    	   JMP KEY_DOWNLOAD_HEX
+0989   C401             
+0990   C401 C9 13       CHK_FUNC9 CMP #13H
+0991   C403 D0 03                 BNE CHK_FUNC10
+0992   C405 4C 7E C6    	  JMP KEY_STEP
+0993   C408                       
+0994   C408             	  
+0995   C408 C9 16       CHK_FUNC10 CMP #16H
+0996   C40A D0 03                  BNE CHK_FUNC11
+0997   C40C 4C 1A C4    	   JMP KEY_INS
+0998   C40F             
+0999   C40F C9 17       CHK_FUNC11 CMP #17H
+1000   C411 D0 04                  BNE CHK_FUNC12
+1001   C413 4C 19 C4    	   JMP KEY_DEL
+1002   C416 60          	   RTS
+1003   C417             
+1004   C417             CHK_FUNC12 
+1005   C417             
+1006   C417 60                    RTS
+1007   C418             
+1008   C418             ;----------------------------------------------------------------
+1009   C418             NO_RESPONSE
+1010   C418 60                     RTS
+1011   C419             
+1012   C419             
+1013   C419 60          KEY_DEL    RTS
+1014   C41A             
+1015   C41A             ;------------------------------------------------------------------
+1016   C41A             ; insert byte to current display+1
+1017   C41A             ; shift down 1kB, 256 bytes.
+1018   C41A             
+1019   C41A A5 94       KEY_INS   LDA STATE
+1020   C41C C9 01                 CMP #1
+1021   C41E F0 08                 BEQ KEY_INS1
+1022   C420 C9 02       	  CMP #2
+1023   C422 F0 04       	  BEQ KEY_INS1
+1024   C424             
+1025   C424 20 18 C4    	  JSR NO_RESPONSE
+1026   C427 60          	  RTS
+1027   C428             
+1028   C428 A5 96       KEY_INS1  LDA DISPLAY
+1029   C42A 85 86                 STA DE
+1030   C42C A5 97       	  LDA DISPLAY+1
+1031   C42E 85 87       	  STA DE+1
+1032   C430             
+1033   C430 18          	  CLC
+1034   C431 A5 87                 LDA DE+1
+1035   C433 69 28       	  ADC #40   ; DE=DE+$400 
+1036   C435 85 87       	  STA DE+1
+1037   C437             
+1038   C437             	  
+1039   C437             
+1040   C437             	  
+1041   C437 60          	  RTS
+1042   C438             
+1043   C438             	  
+1044   C438             
+1045   C438             
+1046   C438             
+1047   C438             
+1048   C438             
+1049   C438             ;--------------------------------------------------------------------
+1050   C438             KEY_SEND_HEX
+1051   C438 A9 07                    LDA #7
+1052   C43A 85 94       	     STA STATE ; STATE = 7 FOR SENDING HEX FILE
+1053   C43C             
+1054   C43C A9 00                    LDA #0
+1055   C43E 85 95       	     STA ZERO_FLAG
+1056   C440 20 98 C4    	     JSR STILL_ADDRESS
+1057   C443 A9 AE       	     LDA #0AEH
+1058   C445 85 8C       	     STA BUFFER
+1059   C447 A9 02       	     LDA #2
+1060   C449 85 8D       	     STA BUFFER+1
+1061   C44B 60          	     RTS
+1062   C44C                           
+1063   C44C 60          	      RTS
+1064   C44D             
+1065   C44D             
+1066   C44D             ;-------------------------------------------------------------
+1067   C44D             KEY_DOWNLOAD_HEX
+1068   C44D                           
+1069   C44D A9 B3       	      LDA #0B3H    ; PRINT LOAD
+1070   C44F 85 91       	      STA BUFFER+5
+1071   C451 A9 85       	      LDA #85H
+1072   C453 85 91       	      STA BUFFER+5
+1073   C455 A9 A3       	      LDA #0A3H
+1074   C457 85 90       	      STA BUFFER+4
+1075   C459 A9 3F       	      LDA #3FH
+1076   C45B 85 8F       	      STA BUFFER+3
+1077   C45D A9 B3       	      LDA #0B3H
+1078   C45F 85 8E       	      STA BUFFER+2
+1079   C461 A9 00       	      LDA #0
+1080   C463 85 8D       	      STA BUFFER+1
+1081   C465 85 8C       	      STA BUFFER
+1082   C467             
+1083   C467             	     ; JSR NEW_LINE
+1084   C467             	     ; JSR NEW_LINE
+1085   C467             	     ; JSR NEW_LINE
+1086   C467 A9 0A                     LDA #10
+1087   C469 85 94       	      STA STATE
+1088   C46B 60          	      RTS
+1089   C46C             
+1090   C46C A9 55       GO_STATE10    LDA #55H
+1091   C46E 8D 00 80    	      STA GPIO1
+1092   C471             
+1093   C471             
+1094   C471 20 5F C1    	      JSR GET_RECORD  ; GET INTEL HEX FILE
+1095   C474             	      
+1096   C474 A9 02       	      LDA #2
+1097   C476 85 94       	      STA STATE
+1098   C478 20 C8 C4    	      JSR STILL_DATA
+1099   C47B             	      
+1100   C47B 60          	      RTS
+1101   C47C             
+1102   C47C             
+1103   C47C             ;-----------------------------------------------------------
+1104   C47C A9 05       KEY_REL      LDA #5
+1105   C47E 85 94       	     STA STATE ; STATE = 5 FOR RELATIVE BYTE CALCULATION
+1106   C480             
+1107   C480 A9 00                    LDA #0
+1108   C482 85 95       	     STA ZERO_FLAG
+1109   C484 20 98 C4    	     JSR STILL_ADDRESS
+1110   C487 A9 AE       	     LDA #0AEH
+1111   C489 85 8C       	     STA BUFFER
+1112   C48B A9 02       	     LDA #2
+1113   C48D 85 8D       	     STA BUFFER+1
+1114   C48F 60          	     RTS
+1115   C490                     
+1116   C490             
+1117   C490             ;---------------------------------------------------------
+1118   C490 A9 01       KEY_ADDR     LDA #1
+1119   C492 85 94                    STA STATE     ; STATE =1 FOR ADDRESS MODE
+1120   C494             
+1121   C494 A9 00       	     LDA #0
+1122   C496 85 95       	     STA ZERO_FLAG
+1123   C498             	     
+1124   C498             STILL_ADDRESS
+1125   C498 20 F0 C4                 JSR READ_MEMORY
+1126   C49B             	     
+1127   C49B A5 91       	     LDA BUFFER+5
+1128   C49D 09 40       	     ORA #40H
+1129   C49F 85 91       	     STA BUFFER+5
+1130   C4A1             
+1131   C4A1 A5 90       	     LDA BUFFER+4
+1132   C4A3 09 40       	     ORA #40H
+1133   C4A5 85 90       	     STA BUFFER+4
+1134   C4A7             
+1135   C4A7 A5 8F       	     LDA BUFFER+3
+1136   C4A9 09 40       	     ORA #40H
+1137   C4AB 85 8F       	     STA BUFFER+3
+1138   C4AD             
+1139   C4AD A5 8E                    LDA BUFFER+2
+1140   C4AF 09 40       	     ORA #40H
+1141   C4B1 85 8E       	     STA BUFFER+2
+1142   C4B3             
+1143   C4B3 A5 8D                    LDA BUFFER+1
+1144   C4B5 29 BF       	     AND #~40H
+1145   C4B7 85 8D       	     STA BUFFER+1
+1146   C4B9             
+1147   C4B9 A5 8C       	     LDA BUFFER
+1148   C4BB 29 BF       	     AND #~40H
+1149   C4BD 85 8C       	     STA BUFFER
+1150   C4BF             
+1151   C4BF 60                       RTS
+1152   C4C0             ;---------------------------------------------------------
+1153   C4C0 A9 02       KEY_DATA     LDA #2
+1154   C4C2 85 94                    STA STATE     ; STATE =2 FOR DATA MODE
+1155   C4C4             
+1156   C4C4 A9 00       	      LDA #0
+1157   C4C6 85 95       	     STA ZERO_FLAG
+1158   C4C8             
+1159   C4C8 20 F0 C4    STILL_DATA   JSR READ_MEMORY 
+1160   C4CB             
+1161   C4CB A5 91       	     LDA BUFFER+5
+1162   C4CD 29 BF       	     AND #~40H
+1163   C4CF 85 91       	     STA BUFFER+5
+1164   C4D1             
+1165   C4D1 A5 90       	     LDA BUFFER+4
+1166   C4D3 29 BF       	     AND #~40H
+1167   C4D5 85 90       	     STA BUFFER+4
+1168   C4D7             
+1169   C4D7 A5 8F       	     LDA BUFFER+3
+1170   C4D9 29 BF       	     AND #~40H
+1171   C4DB 85 8F       	     STA BUFFER+3
+1172   C4DD             
+1173   C4DD A5 8E                    LDA BUFFER+2
+1174   C4DF 29 BF       	     AND #~40H
+1175   C4E1 85 8E       	     STA BUFFER+2
+1176   C4E3             
+1177   C4E3 A5 8D                    LDA BUFFER+1
+1178   C4E5 09 40       	     ORA #40H
+1179   C4E7 85 8D       	     STA BUFFER+1
+1180   C4E9             
+1181   C4E9 A5 8C       	     LDA BUFFER
+1182   C4EB 09 40       	     ORA #40H
+1183   C4ED 85 8C       	     STA BUFFER
+1184   C4EF             
+1185   C4EF 60                       RTS
+1186   C4F0             
+1187   C4F0             
+1188   C4F0             ; READ MEMORY
+1189   C4F0             
+1190   C4F0             READ_MEMORY
+1191   C4F0             
+1192   C4F0 A5 96               LDA DISPLAY
+1193   C4F2 85 84       	STA HL
+1194   C4F4 A5 97       	LDA DISPLAY+1
+1195   C4F6 85 85       	STA HL+1
+1196   C4F8 20 62 C3    	JSR ADDRESS_DISPLAY
+1197   C4FB A0 00               LDY #0
+1198   C4FD B1 84       	LDA (HL),Y
+1199   C4FF             	
+1200   C4FF             	;STA GPIO1
+1201   C4FF             
+1202   C4FF 20 54 C3    	JSR DATA_DISPLAY
+1203   C502 60          	RTS
+1204   C503             ;------------------------------------------------------------
+1205   C503             
+1206   C503 20 33 C5    HEX_SEND_FILE JSR HEX_ADDR
+1207   C506 A9 AE                     LDA #0AEH
+1208   C508 85 8C       	      STA BUFFER
+1209   C50A A9 02       	      LDA #2
+1210   C50C 85 8D       	      STA BUFFER+1
+1211   C50E 60          	      RTS
+1212   C50F             
+1213   C50F 20 33 C5    HEX_SEND_FILE2 JSR HEX_ADDR
+1214   C512 A9 8F                     LDA #08FH
+1215   C514 85 8C       	      STA BUFFER
+1216   C516 A9 02       	      LDA #2
+1217   C518 85 8D       	      STA BUFFER+1
+1218   C51A 60          	      RTS
+1219   C51B             
+1220   C51B             ;------------------------------------------------------------
+1221   C51B             
+1222   C51B 20 33 C5    HEX_REL     JSR HEX_ADDR
+1223   C51E A9 AE                   LDA #0AEH
+1224   C520 85 8C       	    STA BUFFER
+1225   C522 A9 02       	    LDA #2
+1226   C524 85 8D       	    STA BUFFER+1
+1227   C526 60          	    RTS
+1228   C527                         
+1229   C527             
+1230   C527             
+1231   C527 20 33 C5    HEX_REL6    JSR HEX_ADDR
+1232   C52A A9 B3                   LDA #0B3H
+1233   C52C 85 8C       	    STA BUFFER
+1234   C52E A9 02       	    LDA #2
+1235   C530 85 8D       	    STA BUFFER+1
+1236   C532 60          	    RTS
+1237   C533             
+1238   C533             
+1239   C533             ;------------------- HEX KEY FOR ADDRESS -------------------
+1240   C533             
+1241   C533 A5 95       HEX_ADDR     LDA ZERO_FLAG
+1242   C535 C9 00       	     CMP #0
+1243   C537 D0 0A       	     BNE SHIFT_ADDRESS
+1244   C539             
+1245   C539 A9 01       	     LDA #1
+1246   C53B 85 95       	     STA ZERO_FLAG   
+1247   C53D A9 00                    LDA #0
+1248   C53F 85 96       	     STA DISPLAY
+1249   C541 85 97       	     STA DISPLAY+1
+1250   C543             
+1251   C543 18          SHIFT_ADDRESS CLC
+1252   C544 26 96                    ROL DISPLAY
+1253   C546 26 97       	     ROL DISPLAY+1
+1254   C548             
+1255   C548 18                       CLC
+1256   C549 26 96                    ROL DISPLAY
+1257   C54B 26 97       	     ROL DISPLAY+1
+1258   C54D             
+1259   C54D 18          	     CLC
+1260   C54E 26 96                    ROL DISPLAY
+1261   C550 26 97       	     ROL DISPLAY+1
+1262   C552             
+1263   C552 18          	     CLC
+1264   C553 26 96                    ROL DISPLAY
+1265   C555 26 97       	     ROL DISPLAY+1
+1266   C557             
+1267   C557 A5 96       	     LDA DISPLAY
+1268   C559 05 83       	     ORA REG_C
+1269   C55B 85 96       	     STA DISPLAY
+1270   C55D             
+1271   C55D                         ; JSR READ_MEMORY
+1272   C55D             
+1273   C55D 20 98 C4    	     JSR STILL_ADDRESS
+1274   C560             
+1275   C560 60          	     RTS
+1276   C561             ;------------------------- HEX KEY FOR DATA MODE --------------------------
+1277   C561             
+1278   C561             
+1279   C561 A5 95       HEX_DATA     LDA ZERO_FLAG
+1280   C563 C9 00       	     CMP #0
+1281   C565 D0 0A       	     BNE SHIFT_DATA
+1282   C567             
+1283   C567 A9 01       	     LDA #1
+1284   C569 85 95       	     STA ZERO_FLAG   
+1285   C56B                          
+1286   C56B A9 00       	     LDA #0
+1287   C56D A0 00       	     LDY #0
+1288   C56F 91 96       	     STA (DISPLAY),Y
+1289   C571             
+1290   C571 A0 00       SHIFT_DATA   LDY #0
+1291   C573 B1 96                    LDA (DISPLAY),Y
+1292   C575 0A          	     ASL A
+1293   C576 0A          	     ASL A
+1294   C577 0A          	     ASL A
+1295   C578 0A          	     ASL A
+1296   C579 05 83       	     ORA REG_C
+1297   C57B 91 96       	     STA (DISPLAY),Y
+1298   C57D             
+1299   C57D             	    ; JSR READ_MEMORY
+1300   C57D 20 C8 C4    	     JSR STILL_DATA
+1301   C580 60          	     RTS
+1302   C581               
+1303   C581             ; INCREMENT CURRENT ADDRESS BY ONE
+1304   C581             ;
+1305   C581             
+1306   C581 A5 94       KEY_INC     LDA STATE
+1307   C583 C9 05                   CMP #5
+1308   C585 F0 1D       	    BEQ REL_KEY_PRESSED
+1309   C587             
+1310   C587 C9 07       	    CMP #7
+1311   C589 F0 35       	    BEQ SEND_INC1
+1312   C58B             
+1313   C58B A9 02                   LDA #2
+1314   C58D 85 94                   STA STATE     ; STATE =2 FOR DATA MODE
+1315   C58F             
+1316   C58F A9 00       	    LDA #0
+1317   C591 85 95       	    STA ZERO_FLAG
+1318   C593                         
+1319   C593             
+1320   C593 18                       CLC
+1321   C594 A5 96                    LDA DISPLAY
+1322   C596 69 01       	     ADC #1
+1323   C598 85 96       	     STA DISPLAY
+1324   C59A A5 97       	     LDA DISPLAY+1
+1325   C59C 69 00       	     ADC #0
+1326   C59E 85 97       	     STA DISPLAY+1
+1327   C5A0                         ; JSR READ_MEMORY
+1328   C5A0 20 C8 C4    	     JSR STILL_DATA
+1329   C5A3 60          	     RTS
+1330   C5A4             
+1331   C5A4             REL_KEY_PRESSED
+1332   C5A4                          
+1333   C5A4             	     ; Save start address
+1334   C5A4             
+1335   C5A4 A5 96       	     LDA DISPLAY
+1336   C5A6 85 A0       	     STA START_ADDRESS
+1337   C5A8 A5 97       	     LDA DISPLAY+1
+1338   C5AA 85 A1       	     STA START_ADDRESS+1
+1339   C5AC             
+1340   C5AC A9 06                    LDA #6
+1341   C5AE 85 94       	     STA STATE
+1342   C5B0 A9 00                    LDA #0
+1343   C5B2 85 95       	     STA ZERO_FLAG
+1344   C5B4             	     
+1345   C5B4 20 98 C4    	     JSR STILL_ADDRESS
+1346   C5B7 A9 B3       	     LDA #0B3H
+1347   C5B9 85 8C       	     STA BUFFER
+1348   C5BB A9 02       	     LDA #2
+1349   C5BD 85 8D       	     STA BUFFER+1
+1350   C5BF 60          	     RTS
+1351   C5C0                 
+1352   C5C0             
+1353   C5C0             SEND_INC1   ; Save start address
+1354   C5C0             
+1355   C5C0 A5 96       	     LDA DISPLAY
+1356   C5C2 85 A0       	     STA START_ADDRESS
+1357   C5C4 A5 97       	     LDA DISPLAY+1
+1358   C5C6 85 A1       	     STA START_ADDRESS+1
+1359   C5C8             
+1360   C5C8 A9 08                    LDA #8
+1361   C5CA 85 94       	     STA STATE
+1362   C5CC A9 00                    LDA #0
+1363   C5CE 85 95       	     STA ZERO_FLAG
+1364   C5D0             	     
+1365   C5D0 20 98 C4    	     JSR STILL_ADDRESS
+1366   C5D3 A9 8F       	     LDA #08FH
+1367   C5D5 85 8C       	     STA BUFFER
+1368   C5D7 A9 02       	     LDA #2
+1369   C5D9 85 8D       	     STA BUFFER+1
+1370   C5DB 60          	     RTS
+1371   C5DC             
+1372   C5DC             
+1373   C5DC             
+1374   C5DC             
+1375   C5DC             
+1376   C5DC             
+1377   C5DC             
+1378   C5DC             ; DECREMENT CURRENT ADDRESS BY ONE
+1379   C5DC             ;
+1380   C5DC             
+1381   C5DC A9 02       KEY_DEC     LDA #2
+1382   C5DE 85 94                   STA STATE     ; STATE =2 FOR DATA MODE
+1383   C5E0             
+1384   C5E0 A9 00       	    LDA #0
+1385   C5E2 85 95       	    STA ZERO_FLAG
+1386   C5E4                         
+1387   C5E4             
+1388   C5E4 38                       SEC
+1389   C5E5 A5 96                    LDA DISPLAY
+1390   C5E7 E9 01       	     SBC #1
+1391   C5E9 85 96       	     STA DISPLAY
+1392   C5EB A5 97       	     LDA DISPLAY+1
+1393   C5ED E9 00       	     SBC #0
+1394   C5EF 85 97       	     STA DISPLAY+1
+1395   C5F1                        ;  JSR READ_MEMORY
+1396   C5F1 20 C8 C4    	     JSR STILL_DATA
+1397   C5F4 60          	     RTS
+1398   C5F5             
+1399   C5F5             ; KEY PC, SET CURRENT USER ADDRESS
+1400   C5F5             
+1401   C5F5 A9 02       KEY_PC      LDA #2
+1402   C5F7 85 94                   STA STATE     ; STATE =2 FOR DATA MODE
+1403   C5F9             
+1404   C5F9 A9 00       	    LDA #0
+1405   C5FB 85 95       	    STA ZERO_FLAG
+1406   C5FD             
+1407   C5FD A5 98       	    LDA PC_USER
+1408   C5FF 85 96       	    STA DISPLAY
+1409   C601 A5 99       	    LDA PC_USER+1       
+1410   C603 85 97       	    STA DISPLAY+1
+1411   C605                        ; JSR READ_MEMORY
+1412   C605 20 C8 C4    	    JSR STILL_DATA
+1413   C608 60          	    RTS
+1414   C609             
+1415   C609             ; KEY REGSITER
+1416   C609             ; SET STATE TO 3 FOR REGISTER INPUT WITH HEX KEY
+1417   C609             
+1418   C609 A9 03       KEY_REG    LDA #3
+1419   C60B 85 94                  STA STATE  ; STATE = 3 FOR REGISTER DISPLAY
+1420   C60D             
+1421   C60D A9 03       	   LDA #3
+1422   C60F 85 91       	   STA BUFFER+5
+1423   C611 A9 8F       	   LDA #8FH
+1424   C613 85 90       	   STA BUFFER+4
+1425   C615 A9 BE       	   LDA #0BEH
+1426   C617 85 8F       	   STA BUFFER+3
+1427   C619 A9 02       	   LDA #2
+1428   C61B 85 8E       	   STA BUFFER+2
+1429   C61D A9 00       	   LDA #0
+1430   C61F 85 8D       	   STA BUFFER+1
+1431   C621 85 8C       	   STA BUFFER
+1432   C623             
+1433   C623 60          	   RTS
+1434   C624             
+1435   C624             ;---------------------------------------------------------------------------
+1436   C624             GO_STATE8
+1437   C624                     
+1438   C624 A5 96       	LDA DISPLAY
+1439   C626 85 A2       	STA DESTINATION     ; DESTINATION IS NOW ENDING ADDRESS
+1440   C628 A5 97       	LDA DISPLAY+1
+1441   C62A 85 A3       	STA DESTINATION+1
+1442   C62C             
+1443   C62C             ; NOW COMPUTE NUMBER OF BYTE = DESTINATION - START_ADDRESS
+1444   C62C A5 A0               LDA START_ADDRESS
+1445   C62E 85 84       	STA HL
+1446   C630 A5 A1       	LDA START_ADDRESS+1
+1447   C632 85 85       	STA HL+1
+1448   C634             
+1449   C634 38                  SEC
+1450   C635 A5 A2       	LDA DESTINATION
+1451   C637 E5 84       	SBC HL
+1452   C639 85 A4       	STA OFFSET_BYTE
+1453   C63B             
+1454   C63B A5 A3       	LDA DESTINATION+1
+1455   C63D E5 85       	SBC HL+1
+1456   C63F 85 A5       	STA OFFSET_BYTE+1   ; OFFSET = NUMBER OF BYTE
+1457   C641             
+1458   C641             ; DEVIDE NUMBER OF BYTE WITH 16 TO GET NUMBER OF RECORD TO BE SENT
+1459   C641             
+1460   C641 46 A5               LSR OFFSET_BYTE+1
+1461   C643 66 A4       	ROR OFFSET_BYTE
+1462   C645                     
+1463   C645 46 A5       	LSR OFFSET_BYTE+1
+1464   C647 66 A4       	ROR OFFSET_BYTE
+1465   C649             
+1466   C649 46 A5               LSR OFFSET_BYTE+1
+1467   C64B 66 A4       	ROR OFFSET_BYTE
+1468   C64D                     
+1469   C64D 46 A5       	LSR OFFSET_BYTE+1
+1470   C64F 66 A4       	ROR OFFSET_BYTE
+1471   C651             
+1472   C651 A5 A4               LDA OFFSET_BYTE ; CHECK RESULT
+1473   C653 8D 00 80    	STA GPIO1
+1474   C656             
+1475   C656 60          	RTS
+1476   C657             
+1477   C657             SHORT_GO_STATE10 
+1478   C657 4C 6C C4            JMP GO_STATE10
+1479   C65A             
+1480   C65A             ; KEY GO WRITE USER REGISTERS TO STACK AND USE RTI TO JUMP TO USER PROGRAM
+1481   C65A             ;
+1482   C65A             
+1483   C65A A5 94       KEY_GO LDA STATE
+1484   C65C C9 06              CMP #6
+1485   C65E F0 46              BEQ GO_STATE6
+1486   C660             
+1487   C660 C9 08              CMP #8
+1488   C662 F0 C0              BEQ GO_STATE8
+1489   C664             
+1490   C664 C9 0A              CMP #10
+1491   C666 F0 EF              BEQ SHORT_GO_STATE10
+1492   C668             
+1493   C668 BA                  TSX
+1494   C669 86 9F       	STX SAVE_SP   ; SAVE SYSTEM STACK
+1495   C66B             	              
+1496   C66B             ; NOW SWITCH TO USER STACK
+1497   C66B             
+1498   C66B A6 9D               LDX USER_S
+1499   C66D 9A          	TXS          
+1500   C66E             		
+1501   C66E A5 97       	LDA DISPLAY+1
+1502   C670 48          	PHA
+1503   C671 A5 96       	LDA DISPLAY
+1504   C673 48          	PHA
+1505   C674 A5 9E       	LDA USER_P
+1506   C676 48          	PHA
+1507   C677 A6 9B       	LDX USER_X
+1508   C679 A4 9C       	LDY USER_Y
+1509   C67B A5 9A       	LDA USER_A
+1510   C67D 40          	RTI
+1511   C67E             ;---------------------- SINGLE STEP ------------------------
+1512   C67E             
+1513   C67E             KEY_STEP
+1514   C67E             
+1515   C67E BA                  TSX
+1516   C67F 86 9F       	STX SAVE_SP   ; SAVE SYSTEM STACK
+1517   C681             	              
+1518   C681             		      ; NOW SWITCH TO USER STACK
+1519   C681             
+1520   C681 A6 9D               LDX USER_S
+1521   C683 9A          	TXS  
+1522   C684             	
+1523   C684             ; LOAD CURRENT PC TO DISPLAY
+1524   C684             
+1525   C684 A5 98               LDA PC_USER
+1526   C686 85 96       	STA DISPLAY
+1527   C688 A5 99       	LDA PC_USER+1
+1528   C68A 85 97       	STA DISPLAY+1
+1529   C68C             
+1530   C68C             
+1531   C68C             
+1532   C68C A5 97               LDA DISPLAY+1
+1533   C68E 48          	PHA
+1534   C68F A5 96       	LDA DISPLAY
+1535   C691 48          	PHA
+1536   C692 A5 9E       	LDA USER_P
+1537   C694 48          	PHA
+1538   C695 A6 9B       	LDX USER_X
+1539   C697 A4 9C       	LDY USER_Y
+1540   C699             	
+1541   C699 A9 FF       	LDA #$FF       ; BREAK MUST BE LOGIC HIGH TO ENABLE IT
+1542   C69B 8D 02 80    	STA PORT1   
+1543   C69E                    
+1544   C69E EA                 	NOP
+1545   C69F EA          	NOP
+1546   C6A0 EA          	NOP
+1547   C6A1 EA          	NOP
+1548   C6A2 EA          	NOP
+1549   C6A3 A5 9A       	LDA USER_A  ; 
+1550   C6A5 40          	RTI         ; 
+1551   C6A6             	
+1552   C6A6             ; USER INSTRUCTION IS 8TH FETCHING, IT WILL JUMP TO NMI SERVICE
+1553   C6A6             
+1554   C6A6             
+1555   C6A6             
+1556   C6A6             ; KEY GO WITH RELATIVE CALCULATION
+1557   C6A6             ; FIND OFFSET BYTE
+1558   C6A6             
+1559   C6A6             GO_STATE6
+1560   C6A6             
+1561   C6A6 A5 96               LDA DISPLAY
+1562   C6A8 85 A2       	STA DESTINATION
+1563   C6AA A5 97       	LDA DISPLAY+1
+1564   C6AC 85 A3       	STA DESTINATION+1
+1565   C6AE             
+1566   C6AE             ; NOW COMPUTE OFFSET_BYTE = DESTINATION - START_ADDRESS
+1567   C6AE             
+1568   C6AE             ; THE REAL PC WILL BE NEXT INTSRUCTION ADDRESS (+2 FROM BRANCH INSTRUCTION)
+1569   C6AE             
+1570   C6AE A5 A0               LDA START_ADDRESS
+1571   C6B0 85 84       	STA HL
+1572   C6B2 A5 A1       	LDA START_ADDRESS+1
+1573   C6B4 85 85       	STA HL+1
+1574   C6B6 20 C5 C0    	JSR INC_HL
+1575   C6B9 20 C5 C0    	JSR INC_HL
+1576   C6BC             
+1577   C6BC 38                  SEC
+1578   C6BD A5 A2       	LDA DESTINATION
+1579   C6BF E5 84       	SBC HL
+1580   C6C1 85 A4       	STA OFFSET_BYTE
+1581   C6C3             
+1582   C6C3 A5 A3       	LDA DESTINATION+1
+1583   C6C5 E5 85       	SBC HL+1
+1584   C6C7 85 A5       	STA OFFSET_BYTE+1
+1585   C6C9             
+1586   C6C9             ; CHECK IF THE OFFSET BYTE WAS BETWEEN -128 (FF80) TO +127 (007F)
+1587   C6C9             ; IF BIT 7 OF THE OFFSET BYTE IS 0, THE HIGH BYTE MUST BE ZERO
+1588   C6C9             ; IF BIT 7 OF THE OFFSET BYTE IS 1, THE HIGH BYTE MUST BE FF
+1589   C6C9             ; OTHERWISE, THE OFFSET BYTE WAS OUT OF RANGE, SHOW ERROR THEN
+1590   C6C9             
+1591   C6C9 A5 A4               LDA OFFSET_BYTE
+1592   C6CB 29 80       	AND #80H
+1593   C6CD F0 09       	BEQ CHK_OFFSET_HIGH
+1594   C6CF             
+1595   C6CF             ; CHECK HIGH BYTE MUST BE FF (-1)
+1596   C6CF                     
+1597   C6CF A5 A5       	LDA OFFSET_BYTE+1
+1598   C6D1 C9 FF       	CMP #0FFH
+1599   C6D3 D0 28       	BNE OUT_OFF_RANGE
+1600   C6D5             
+1601   C6D5 4C DC C6    	JMP IN_RANGE
+1602   C6D8             
+1603   C6D8             CHK_OFFSET_HIGH
+1604   C6D8 A5 A5               LDA OFFSET_BYTE+1
+1605   C6DA D0 21       	BNE OUT_OFF_RANGE
+1606   C6DC             
+1607   C6DC             ; STORE OFFSET TO THE 2ND BYTE OF BRANCH INSTRUCTION
+1608   C6DC             
+1609   C6DC A5 A0       IN_RANGE LDA START_ADDRESS
+1610   C6DE 85 84       	STA HL
+1611   C6E0 A5 A1       	LDA START_ADDRESS+1
+1612   C6E2 85 85       	STA HL+1
+1613   C6E4 20 C5 C0    	JSR INC_HL
+1614   C6E7             
+1615   C6E7 A5 A4       	LDA OFFSET_BYTE
+1616   C6E9 A0 00       	LDY #0
+1617   C6EB 91 84       	STA (HL),Y
+1618   C6ED             
+1619   C6ED A5 84       	LDA HL          ; DISPLAY LOCATION OF OFFSET BYTE
+1620   C6EF 85 96       	STA DISPLAY
+1621   C6F1 A5 85       	LDA HL+1
+1622   C6F3 85 97       	STA DISPLAY+1
+1623   C6F5             
+1624   C6F5                    
+1625   C6F5 20 C8 C4    	JSR STILL_DATA
+1626   C6F8             
+1627   C6F8 A9 02       	LDA #2
+1628   C6FA 85 94       	STA STATE
+1629   C6FC 60          	RTS
+1630   C6FD             
+1631   C6FD             OUT_OFF_RANGE
+1632   C6FD             
+1633   C6FD A9 02               LDA #2
+1634   C6FF 85 91       	STA BUFFER+5
+1635   C701 A9 8F       	LDA #8FH
+1636   C703 85 90       	STA BUFFER+4
+1637   C705 A9 03       	LDA #3
+1638   C707 85 8F       	STA BUFFER+3
+1639   C709 A9 03       	LDA #3
+1640   C70B 85 8E       	STA BUFFER+2
+1641   C70D A9 00       	LDA #0
+1642   C70F 85 8D       	STA BUFFER+1
+1643   C711 85 8C       	STA BUFFER
+1644   C713             	
+1645   C713 A9 02       	LDA #2
+1646   C715 85 94       	STA STATE
+1647   C717             	
+1648   C717 60          	RTS
+1649   C718             
+1650   C718             
+1651   C718             
+1652   C718             
+1653   C718             
+1654   C718             
+1655   C718             
+1656   C718             ; NMI SERVICE ROUTINE
+1657   C718             ; SAVE CPU REGISTERS TO USER REGISTERS FOR PROGRAM DEBUGGING
+1658   C718             
+1659   C718             NMI_SERVICE 
+1660   C718             
+1661   C718 85 9A                STA USER_A
+1662   C71A                     ; STA GPIO1     ; 8-BIT DISPLAY WILL SHOW CONTENT OF ACCUMULATOR
+1663   C71A             	
+1664   C71A A9 BF       	 LDA #$BF
+1665   C71C 8D 02 80    	 STA PORT1      ; TURN OFF BRK SIGNAL 
+1666   C71F             
+1667   C71F             ; STILL WITH USER STACK 
+1668   C71F             	         	  
+1669   C71F 68          	 PLA
+1670   C720 85 9E       	 STA USER_P
+1671   C722             	 
+1672   C722 68          	 PLA
+1673   C723 85 96       	 STA DISPLAY
+1674   C725 85 98       	 STA PC_USER
+1675   C727 68          	 PLA
+1676   C728 85 97       	 STA DISPLAY+1
+1677   C72A 85 99       	 STA PC_USER+1
+1678   C72C 84 9C       	 STY USER_Y
+1679   C72E 86 9B       	 STX USER_X
+1680   C730             	 
+1681   C730 BA          	 TSX 
+1682   C731 86 9D       	 STX USER_S
+1683   C733             
+1684   C733 20 90 C4    	 JSR KEY_ADDR ; DISPLAY LOCATION THAT BREAKED
+1685   C736             
+1686   C736             ; RESTORE SYSTEM STACK
+1687   C736             
+1688   C736 A6 9F       	 LDX SAVE_SP
+1689   C738 9A          	 TXS
+1690   C739             
+1691   C739 60          	 RTS
+1692   C73A             
+1693   C73A             ; DISPLAY USER REGSITERS
+1694   C73A             
+1695   C73A A5 83       HEX_REG  LDA REG_C
+1696   C73C C9 00                CMP #0
+1697   C73E D0 14       	 BNE CHK_REG1
+1698   C740             
+1699   C740 A5 9A       	 LDA USER_A
+1700   C742             	; STA GPIO1
+1701   C742 20 54 C3    	 JSR DATA_DISPLAY
+1702   C745 A9 82       	 LDA #82H
+1703   C747 85 8E       	 STA BUFFER+2
+1704   C749 A9 3F       	 LDA #3FH        ; REGISTER A
+1705   C74B 85 8F       	 STA BUFFER+3
+1706   C74D A9 00       	 LDA #0
+1707   C74F 85 90       	 STA BUFFER+4
+1708   C751 85 91       	 STA BUFFER+5
+1709   C753 60          	 RTS
+1710   C754             
+1711   C754             CHK_REG1 
+1712   C754 C9 01                CMP #1
+1713   C756 D0 14       	 BNE CHK_REG2
+1714   C758             
+1715   C758 A5 9B       	 LDA USER_X
+1716   C75A             	; STA GPIO1
+1717   C75A             
+1718   C75A 20 54 C3    	 JSR DATA_DISPLAY
+1719   C75D A9 82       	 LDA #82H
+1720   C75F 85 8E       	 STA BUFFER+2
+1721   C761 A9 07       	 LDA #7         ; REGISTER X
+1722   C763 85 8F       	 STA BUFFER+3
+1723   C765 A9 00       	 LDA #0
+1724   C767 85 90       	 STA BUFFER+4
+1725   C769 85 91       	 STA BUFFER+5
+1726   C76B 60          	 RTS
+1727   C76C             
+1728   C76C C9 02       CHK_REG2  CMP #2
+1729   C76E D0 14       	 BNE CHK_REG3
+1730   C770             
+1731   C770 A5 9C       	 LDA USER_Y
+1732   C772             	; STA GPIO1
+1733   C772             
+1734   C772 20 54 C3    	 JSR DATA_DISPLAY
+1735   C775 A9 82       	 LDA #82H
+1736   C777 85 8E       	 STA BUFFER+2
+1737   C779 A9 B6       	 LDA #0B6H        ; REGISTER Y
+1738   C77B 85 8F       	 STA BUFFER+3
+1739   C77D A9 00       	 LDA #0
+1740   C77F 85 90       	 STA BUFFER+4
+1741   C781 85 91       	 STA BUFFER+5
+1742   C783 60          	 RTS
+1743   C784             
+1744   C784             
+1745   C784 C9 03       CHK_REG3 CMP #3
+1746   C786 D0 14       	 BNE CHK_REG4
+1747   C788             
+1748   C788 A5 9D       	 LDA USER_S
+1749   C78A             	; STA GPIO1
+1750   C78A             
+1751   C78A 20 54 C3    	 JSR DATA_DISPLAY
+1752   C78D A9 82       	 LDA #82H
+1753   C78F 85 8E       	 STA BUFFER+2
+1754   C791 A9 AE       	 LDA #0AEH        ; REGISTER S
+1755   C793 85 8F       	 STA BUFFER+3
+1756   C795 A9 00       	 LDA #0
+1757   C797 85 90       	 STA BUFFER+4
+1758   C799 85 91       	 STA BUFFER+5
+1759   C79B 60          	 RTS
+1760   C79C             
+1761   C79C C9 05       CHK_REG4 CMP #5
+1762   C79E D0 42                BNE CHK_REG5
+1763   C7A0             
+1764   C7A0 A9 00       	  LDA #0            ; RESET HL TO 0000
+1765   C7A2 85 84       	  STA HL
+1766   C7A4 85 85       	  STA HL+1
+1767   C7A6             
+1768   C7A6 A5 9E       	  LDA USER_P
+1769   C7A8             	 ; STA GPIO1
+1770   C7A8 29 01       	  AND #1
+1771   C7AA F0 06       	  BEQ NEXT_BIT1
+1772   C7AC A5 84       	  LDA HL
+1773   C7AE 09 01       	  ORA #1
+1774   C7B0 85 84       	  STA HL
+1775   C7B2             
+1776   C7B2 A5 9E       NEXT_BIT1 LDA USER_P
+1777   C7B4 29 02                 AND #2
+1778   C7B6 F0 06       	  BEQ NEXT_BIT2
+1779   C7B8             
+1780   C7B8 A5 84       	  LDA HL
+1781   C7BA 09 10       	  ORA #10H
+1782   C7BC 85 84       	  STA HL
+1783   C7BE             
+1784   C7BE A5 9E       NEXT_BIT2 LDA USER_P
+1785   C7C0 29 04                 AND #4
+1786   C7C2 F0 06       	  BEQ NEXT_BIT3
+1787   C7C4             
+1788   C7C4 A5 85       	  LDA HL+1
+1789   C7C6 09 01       	  ORA #1
+1790   C7C8 85 85       	  STA HL+1
+1791   C7CA             
+1792   C7CA A5 9E       NEXT_BIT3 LDA USER_P
+1793   C7CC 29 08                 AND #8
+1794   C7CE F0 06       	  BEQ OK1
+1795   C7D0             
+1796   C7D0 A5 85       	  LDA HL+1
+1797   C7D2 09 10       	  ORA #10H
+1798   C7D4 85 85       	  STA HL+1
+1799   C7D6 20 62 C3    OK1       JSR ADDRESS_DISPLAY
+1800   C7D9                       
+1801   C7D9 A9 1F       	  LDA #1FH
+1802   C7DB 85 8D       	  STA BUFFER+1
+1803   C7DD A9 85       	  LDA #085H
+1804   C7DF 85 8C       	  STA BUFFER
+1805   C7E1 60                    RTS
+1806   C7E2             
+1807   C7E2             
+1808   C7E2 C9 04       CHK_REG5  CMP #4
+1809   C7E4 D0 42                 BNE CHK_REG6
+1810   C7E6             
+1811   C7E6 A9 00                 LDA #0            ; RESET HL TO 0000
+1812   C7E8 85 84       	  STA HL
+1813   C7EA 85 85       	  STA HL+1
+1814   C7EC             
+1815   C7EC A5 9E       	  LDA USER_P
+1816   C7EE             	;  STA GPIO1
+1817   C7EE             
+1818   C7EE 29 10       	  AND #10H
+1819   C7F0 F0 06       	  BEQ NEXT_BIT4
+1820   C7F2 A5 84       	  LDA HL
+1821   C7F4 09 01       	  ORA #1
+1822   C7F6 85 84       	  STA HL
+1823   C7F8             
+1824   C7F8 A5 9E       NEXT_BIT4 LDA USER_P
+1825   C7FA 29 20                 AND #20H
+1826   C7FC F0 06       	  BEQ NEXT_BIT5
+1827   C7FE A5 84       	  LDA HL
+1828   C800 09 10       	  ORA #10H
+1829   C802 85 84       	  STA HL
+1830   C804             
+1831   C804 A5 9E       NEXT_BIT5 LDA USER_P
+1832   C806 29 40                 AND #40H
+1833   C808 F0 06       	  BEQ NEXT_BIT6
+1834   C80A             
+1835   C80A A5 85       	  LDA HL+1
+1836   C80C 09 01       	  ORA #1
+1837   C80E 85 85       	  STA HL+1
+1838   C810             
+1839   C810 A5 9E       NEXT_BIT6 LDA USER_P
+1840   C812 29 80                 AND #80H
+1841   C814 F0 06       	  BEQ OK2
+1842   C816             
+1843   C816 A5 85       	  LDA HL+1
+1844   C818 09 10       	  ORA #10H
+1845   C81A 85 85       	  STA HL+1
+1846   C81C             
+1847   C81C 20 62 C3    OK2       JSR ADDRESS_DISPLAY
+1848   C81F                       
+1849   C81F A9 1F       	  LDA #1FH
+1850   C821 85 8D       	  STA BUFFER+1
+1851   C823 A9 37       	  LDA #37H
+1852   C825 85 8C       	  STA BUFFER
+1853   C827 60                    RTS
+1854   C828             
+1855   C828 C9 10       CHK_REG6  CMP #10H
+1856   C82A B0 1C                 BCS NOT_HEX
+1857   C82C             	  
+1858   C82C             ; NOW DISPLAY PAGE ZERO BYTE FROM 0 TO 9
+1859   C82C             
+1860   C82C 38                    SEC
+1861   C82D E9 06       	  SBC #6
+1862   C82F             
+1863   C82F             ; NOW A IS LOCATION IS PAGE ZERO 0-9
+1864   C82F AA                    TAX
+1865   C830 B5 00       	  LDA 0,X
+1866   C832 86 A8       	  STX SAVE_X
+1867   C834             
+1868   C834 20 54 C3    	  JSR DATA_DISPLAY
+1869   C837                       
+1870   C837 A6 A8       	  LDX SAVE_X
+1871   C839             
+1872   C839 8A          	  TXA
+1873   C83A 85 85       	  STA HL+1
+1874   C83C 20 62 C3    	  JSR ADDRESS_DISPLAY
+1875   C83F             
+1876   C83F A9 82       	  LDA #82H
+1877   C841 85 8F       	  STA BUFFER+3
+1878   C843 A9 00       	  LDA #0
+1879   C845 85 8E       	  STA BUFFER+2
+1880   C847 60          	  RTS
+1881   C848             
+1882   C848             NOT_HEX   
+1883   C848 60                    RTS
+1884   C849             
+1885   C849             ; PRODUCE BEEP WHEN KEY PRESSED
+1886   C849             ; CALIBRATED TO 523Hz
+1887   C849             
+1888   C849 AD 01 80    BEEP     LDA PORT0    
+1889   C84C 29 40                AND #40H    
+1890   C84E F0 15       	 BEQ NO_BEEP    ; CHECK IF REPEAT KEY IS PRESSED, THEN NO BEEP
+1891   C850             
+1892   C850 A2 25                LDX #25H
+1893   C852             
+1894   C852 A9 3F       BEEP2    LDA #3FH
+1895   C854 8D 02 80    	 STA PORT1
+1896   C857 20 66 C8    	 JSR BEEP_DELAY
+1897   C85A A9 BF       	 LDA #0BFH
+1898   C85C 8D 02 80    	 STA PORT1
+1899   C85F 20 66 C8    	 JSR BEEP_DELAY
+1900   C862             
+1901   C862 CA          	 DEX
+1902   C863 D0 ED       	 BNE BEEP2
+1903   C865             
+1904   C865 60          NO_BEEP	 RTS
+1905   C866             
+1906   C866 A0 B0       BEEP_DELAY LDY #$B0       ; 0BBH      ; adjust for the tone frequency 
+1907   C868 88          BEEP_LOOP DEY
+1908   C869 D0 FD                 BNE BEEP_LOOP
+1909   C86B 60          	  RTS
+1910   C86C             
+1911   C86C             ; DISPLAY COLD BOOT MESSAGE
+1912   C86C             ; 
+1913   C86C             
+1914   C86C             COLD_MESSAGE 
+1915   C86C                       
+1916   C86C A9 0A       	  LDA #10
+1917   C86E 85 81                 STA REG_D
+1918   C870             
+1919   C870 A9 08       	  LDA #8
+1920   C872 85 82       	  STA REG_B
+1921   C874             
+1922   C874 A2 07       	  LDX #7
+1923   C876             
+1924   C876             DISPLAY2
+1925   C876 20 66 C2    	  JSR SCAN2
+1926   C879             
+1927   C879 C6 81       	  DEC REG_D
+1928   C87B D0 F9       	  BNE DISPLAY2
+1929   C87D             
+1930   C87D CA          	  DEX 
+1931   C87E             
+1932   C87E C6 82       	  DEC REG_B
+1933   C880 D0 F4       	  BNE DISPLAY2
+1934   C882 60          	  RTS
+1935   C883             
+1936   C883             
+1937   C883             
+1938   C883              
+1939   C883             ; NMI and IRQ are called via RAM-vector. This enables the programmer
+1940   C883             ; to insert his own routines.
+1941   C883             
+1942   C883             
+1943   C883 6C FA 00    NMI    JMP     ($FA)
+1944   C886 6C FE 00    IRQ    JMP     ($FE)
+1945   C889             
+1946   C889             
+1947   C889             ;-------------------------------------------------------------
+1948   C889             
+1949   C889 A9 00       MAIN    LDA #0
+1950   C88B 85 8C               STA BUFFER
+1951   C88D 85 8D       	STA BUFFER+1
+1952   C88F 85 92       	STA INVALID   ; CLEAR INVALID FLAG
+1953   C891             
+1954   C891             ; INSERT 6502 TEXT 
+1955   C891             
+1956   C891 A9 AF       	LDA #0AFH
+1957   C893 85 91               STA BUFFER+5
+1958   C895 A9 AE       	LDA #0AEH
+1959   C897 85 90       	STA BUFFER+4
+1960   C899 A9 BD       	LDA #0BDH
+1961   C89B 85 8F       	STA BUFFER+3
+1962   C89D A9 9B       	LDA #9BH
+1963   C89F 85 8E       	STA BUFFER+2
+1964   C8A1             
+1965   C8A1             	
+1966   C8A1             
+1967   C8A1             ; STORE VECTOR INTERRUPT
+1968   C8A1             	
+1969   C8A1 A9 18       	LDA #NMI_SERVICE&0FFH   ; NMI MUST BE SET BEFORE USING SINGLE STEP
+1970   C8A3 85 FA       	STA $FA
+1971   C8A5 85 FE       	STA $FE
+1972   C8A7             
+1973   C8A7 A9 C7       	LDA #(NMI_SERVICE>>8)
+1974   C8A9 85 FB       	STA $FB
+1975   C8AB 85 FF       	STA $FF
+1976   C8AD             
+1977   C8AD A2 FF       	LDX #$FF
+1978   C8AF 9A          	TXS         ; SET SYSTEM STACK TO 1FFH
+1979   C8B0 A9 7F               LDA #$7F    ; AND USER STACK TO 17FH
+1980   C8B2 85 9D       	STA USER_S
+1981   C8B4             
+1982   C8B4 D8          	CLD
+1983   C8B5 78          	SEI         ; DISABLE IRQ
+1984   C8B6             
+1985   C8B6 A9 00       	LDA #0
+1986   C8B8 85 94       	STA STATE    ; INITIAL STATE
+1987   C8BA 85 95       	STA ZERO_FLAG
+1988   C8BC             
+1989   C8BC A9 00               LDA #0
+1990   C8BE 85 96       	STA DISPLAY
+1991   C8C0 85 98       	STA PC_USER
+1992   C8C2 A9 02       	LDA #02H
+1993   C8C4 85 97       	STA DISPLAY+1
+1994   C8C6 85 99       	STA PC_USER+1
+1995   C8C8             
+1996   C8C8             
+1997   C8C8 A5 96               LDA DISPLAY
+1998   C8CA 85 84       	STA HL
+1999   C8CC A5 97       	LDA DISPLAY+1
+2000   C8CE 85 85       	STA HL+1
+2001   C8D0             
+2002   C8D0             
+2003   C8D0             
+2004   C8D0             	;JSR ADDRESS_DISPLAY
+2005   C8D0 A0 00               LDY #0
+2006   C8D2 B1 84       	LDA (HL),Y
+2007   C8D4             	;JSR DATA_DISPLAY
+2008   C8D4             
+2009   C8D4 A5 A6               LDA COLD
+2010   C8D6 C9 99       	CMP #99H
+2011   C8D8 F0 0F       	BEQ WARM_BOOT
+2012   C8DA             
+2013   C8DA A9 99       	LDA #99H
+2014   C8DC 85 A6       	STA COLD
+2015   C8DE             
+2016   C8DE             	
+2017   C8DE A9 FF               LDA #$FF
+2018   C8E0 8D 00 80    	STA GPIO1     ; TEST GPIO1
+2019   C8E3             
+2020   C8E3 20 6C C8            JSR COLD_MESSAGE
+2021   C8E6 20 49 C8    	JSR BEEP
+2022   C8E9             
+2023   C8E9             WARM_BOOT
+2024   C8E9 A9 00               LDA #0
+2025   C8EB 8D 00 80    	STA GPIO1
+2026   C8EE             
+2027   C8EE 20 04 C3    LOOP3	JSR SCANKEY
+2028   C8F1 20 7D C3            JSR KEYEXE
+2029   C8F4 20 49 C8    	JSR BEEP
+2030   C8F7 4C EE C8    	JMP LOOP3
+2031   C8FA             
+2032   C8FA             
+2033   C8FA             
+2034   C8FA             
+2035   C8FA             
+2036   C8FA             
+2037   C8FA             
+2038   C8FA             ;--------------------------------------------------------------
+2039   C8FA 00          START_MSG .BYTE 0
+2040   C8FB 00                    .BYTE 0
+2041   C8FC 9B                    .BYTE 9BH
+2042   C8FD BD                    .BYTE 0BDH
+2043   C8FE AE                    .BYTE 0AEH
+2044   C8FF AF          	  .BYTE 0AFH
+2045   C900 00                    .BYTE 0
+2046   C901 00          	  .BYTE 0
+2047   C902 00          	  .BYTE 0
+2048   C903 00          	  .BYTE 0
+2049   C904 00          	  .BYTE 0
+2050   C905 00                    .BYTE 0
+2051   C906             
+2052   C906             
+2053   C906 BD          SEGTAB	.BYTE	0BDH		;'0'
+2054   C907 30          	.BYTE	030H		;'1'
+2055   C908 9B          	.BYTE	09BH		;'2'
+2056   C909 BA          	.BYTE	0BAH		;'3'
+2057   C90A 36          	.BYTE	036H		;'4'
+2058   C90B AE          	.BYTE	0AEH		;'5'
+2059   C90C AF          	.BYTE	0AFH		;'6'
+2060   C90D 38          	.BYTE	038H		;'7'
+2061   C90E BF          	.BYTE	0BFH		;'8'
+2062   C90F BE          	.BYTE	0BEH		;'9'
+2063   C910 3F          	.BYTE	03FH		;'A'
+2064   C911 A7          	.BYTE	0A7H		;'B'
+2065   C912 8D          	.BYTE	08DH		;'C'
+2066   C913 B3          	.BYTE	0B3H		;'D'
+2067   C914 8F          	.BYTE	08FH		;'E'
+2068   C915 0F          	.BYTE	00FH		;'F'
+2069   C916             
+2070   C916             
+2071   C916             
+2072   C916             ; Key-posistion-code to key-internal-code conversion table.
+2073   C916             
+2074   C916             KEYTAB:
+2075   C916 03          K0	.BYTE	03H	;HEX_3
+2076   C917 07          K1	.BYTE	07H	;HEX_7
+2077   C918 0B          K2	.BYTE	0BH	;HEX_B
+2078   C919 0F          K3	.BYTE	0FH	;HEX_F
+2079   C91A 20          K4	.BYTE	20H	;NOT USED
+2080   C91B 21          K5	.BYTE	21H	;NOT USED
+2081   C91C 02          K6	.BYTE	02H	;HEX_2
+2082   C91D 06          K7	.BYTE	06H	;HEX_6
+2083   C91E 0A          K8	.BYTE	0AH	;HEX_A
+2084   C91F 0E          K9	.BYTE	0EH	;HEX_E
+2085   C920 22          K0A	.BYTE	22H	;NOT USED
+2086   C921 23          K0B	.BYTE	23H	;NOT USED
+2087   C922 01          K0C	.BYTE	01H	;HEX_1
+2088   C923 05          K0D	.BYTE	05H	;HEX_5
+2089   C924 09          K0E	.BYTE	09H	;HEX_9
+2090   C925 0D          K0F	.BYTE	0DH	;HEX_D
+2091   C926 13          K10	.BYTE	13H	;STEP
+2092   C927 1F          K11	.BYTE	1FH	;TAPERD
+2093   C928 00          K12	.BYTE	00H	;HEX_0
+2094   C929 04          K13	.BYTE	04H	;HEX_4
+2095   C92A 08          K14	.BYTE	08H	;HEX_8
+2096   C92B 0C          K15	.BYTE	0CH	;HEX_C
+2097   C92C 12          K16	.BYTE	12H	;GO
+2098   C92D 1E          K17	.BYTE	1EH	;TAPEWR
+2099   C92E 1A          K18	.BYTE	1AH	;CBR
+2100   C92F 18          K19	.BYTE	18H	;PC
+2101   C930 1B          K1A	.BYTE	1BH	;REG
+2102   C931 19          K1B	.BYTE	19H	;ADDR
+2103   C932 17          K1C	.BYTE	17H	;DEL
+2104   C933 1D          K1D	.BYTE	1DH	;RELA
+2105   C934 15          K1E	.BYTE	15H	;SBR
+2106   C935 11          K1F	.BYTE	11H	;-
+2107   C936 14          K20	.BYTE	14H	;DATA
+2108   C937 10          K21	.BYTE	10H	;+
+2109   C938 16          K22	.BYTE	16H	;INS
+2110   C939 1C          K23	.BYTE	1CH	;MOVE	
+2111   C93A             
+2112   C93A             ; PAGE FOR CONSTANT STRINGS AREA
+2113   C93A             
+2114   EF00             	  .ORG 0EF00H        ; ROM MONITOR
+2115   EF00                       ; .ORG 06F00H        ; RAM TEST 
+2116   EF00             
+2117   EF00             
+2118   EF00             ;TEXT1     .BYTE "6502 TRAINER KIT V1.0 ROM", 10, 13, 0
+2119   EF00 363530322054TEXT1      .BYTE "6502 TRAINER KIT V1.0 RAM", 10, 13, 0 
+2119   EF06 5241494E4552204B49542056312E302052414D0A0D00
+2120   EF1C             	
+2121   EF1C             
+2122   EF1C 3E 3E 00    PROMPT     .BYTE ">>", 0
+2123   EF1F                       
+2124   EF1F             
+2125   EF1F             
+2126   EF1F             
+2127   EF1F             	     ; VECTOR NMI,RESET AND IRQ
+2128   EF1F             
+2129   EF1F             
+2130   FFFA             	  .ORG 0FFFAH
+2131   FFFA             
+2132   FFFA 83 C8                 .WORD  NMI
+2133   FFFC 00 C0       	  .WORD  0C000H  ; RESET VECTOR
+2134   FFFE 86 C8       	  .WORD  IRQ        ; IRQ VECTOR
+2135   0000             
+2136   0000             
+2137   0000             
+2138   0000             
+2139   0000             	  .END
+2140   0000             
+2141   0000             
+2142   0000             
+tasm: Number of errors = 0

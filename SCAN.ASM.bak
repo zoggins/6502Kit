@@ -1,0 +1,316 @@
+; SCAN DISPLAY AND KEYBOARD
+
+
+
+GPIO1   .EQU 8000H
+PORT0   .EQU 8001H
+PORT1   .EQU 8002H
+PORT2   .EQU 8003H
+
+DIGIT   .EQU 8002H
+SEG7    .EQU 8003H
+KIN     .EQU 8001H
+
+
+ 	  ; page zero register definition
+
+       
+;REG_E   .EQU 80H
+;REG_D   .EQU 81H
+;REG_B   .EQU 82H
+;REG_C   .EQU 83H
+;HL      .EQU 84H           ; 84H = L 85H = H
+;DE      .EQU 86H
+;REG_A   .EQU 88H
+
+;_ERROR  .EQU 89H           ; ERROR FLAG FOR INTEL HEX FILE DOWNLOADING
+;BCC     .EQU 8AH           ; BYTE CHECK SUM
+;BUFFER  .EQU 8BH           ; 8BH - 90H PAGE ZERO DISPLAY BUFFER
+;KEY     .EQU 91H
+;STATE   .EQU 92H
+
+ 	  ; page zero register definition
+         
+	 .DSEG
+	 .ORG 80H
+       
+REG_E   .BLOCK 1
+REG_D   .BLOCK 1
+REG_B   .BLOCK 1
+REG_C   .BLOCK 1
+HL      .BLOCK 2           ; 84H = L 85H = H
+DE      .BLOCK 2
+REG_A   .BLOCK 1
+
+_ERROR  .BLOCK 1           ; ERROR FLAG FOR INTEL HEX FILE DOWNLOADING
+BCC     .BLOCK 1           ; BYTE CHECK SUM
+BUFFER  .BLOCK 6           ; 8BH - 90H PAGE ZERO DISPLAY BUFFER
+KEY     .BLOCK 1
+STATE   .BLOCK 1
+
+
+          .CSEG
+
+
+           .ORG 1000H     ; START ADDRESS FOR CODE TESTING IN RAM
+
+           JMP MAIN
+
+
+; SCAN DISPLAY AND KEYBOARD
+; ENTRY: DISPLAY BUFFER IN PAGE 0
+; EXIT: KEY = -1 NO KEY PRESSED
+;       KEY >=0 KEY POSITION
+
+
+SCAN1:
+
+		
+	
+	LDX #0
+	LDA #0
+	STA REG_C
+	
+	LDA #-1
+	STA KEY
+	
+	LDA #1
+	STA REG_E
+	
+	LDA #6
+	STA HL
+				
+;to the active column.
+KCOL    LDA REG_E	
+
+       	EOR #0FFH               ; COMPLEMENT IT
+	STA DIGIT
+
+	LDA BUFFER,X
+	STA SEG7
+
+	LDY #100
+DELAY3	DEY
+	BNE DELAY3
+
+	LDA #0                 ; TURN LED OFF
+	STA SEG7
+	
+
+	LDA #6
+	STA REG_B
+	
+	LDA KIN
+	
+	STA  REG_D
+
+	
+KROW	LSR  REG_D		;Rotate D 1 bit right, bit 0
+				;of D will be rotated into
+	BCS NOKEY			;carry flag.
+	
+	LDA REG_C
+	STA KEY
+
+NOKEY	INC REG_C		;Increase current key-code by 1.
+	
+	DEC REG_B
+	BNE KROW
+	
+	INX
+	
+	LDA REG_E
+	ASL A
+	STA REG_E
+		
+	
+	DEC  HL
+	BNE  KCOL
+	RTS
+
+
+DEBOUNCE LDY #200
+DELAY4   DEY
+	 BNE DELAY4
+	 RTS
+
+;--------------------------------------------------------------------
+
+SCANKEY JSR SCAN1
+        LDA KEY
+	CMP #-1
+	BNE SCANKEY
+
+	JSR DEBOUNCE
+
+UNTIL_PRESS
+	
+	JSR SCAN1
+        LDA KEY
+	CMP #-1
+	BEQ UNTIL_PRESS
+
+	JSR DEBOUNCE
+
+	JSR SCAN1
+
+	LDA KEY
+	TAX
+	LDA KEYTAB,X    ; OPEN TABLE
+		
+	STA GPIO1
+	RTS
+
+
+; CONVERT LOW NIBBLE IN ACCUMULATOR TO 7-SEGMENT PATTERN
+; ENTRY: A
+; EXIT: A
+
+NIBBLE_7SEG 
+            TAX
+            LDA SEGTAB,X
+	    RTS
+
+
+; CONVERT BYTE TO 7-SEGMENT PATTERN
+; ENTRY: A
+; EXIT: DE
+
+BYTE_7SEG   PHA
+            AND #0FH
+            JSR NIBBLE_7SEG
+	    STA DE
+	    PLA
+            LSR A
+	    LSR A
+	    LSR A
+	    LSR A
+	    JSR NIBBLE_7SEG
+	    STA DE+1
+	    RTS
+
+; CONVERT BYTE TO 7-SEGMENT PATTERN AND SAVE TO DISPLAY BUFFER DATA FIELD
+; ENTRY: A
+
+DATA_DISPLAY PHA   ; SAVE ACCUMULATOR
+             JSR BYTE_7SEG
+	     LDA DE
+	     STA BUFFER
+	     LDA DE+1
+	     STA BUFFER+1
+             PLA
+	     RTS
+
+; CONVERT 16-BIT ADDRESS IN HL AND SAVE IT TO ADDRESS FILED DISPLAY BUFFER
+; ENTRY: HL
+
+ADDRESS_DISPLAY
+
+            LDA HL
+	    JSR BYTE_7SEG
+	    LDA DE
+	    STA BUFFER+2
+	    LDA DE+1
+	    STA BUFFER+3
+	    LDA HL+1
+	    JSR BYTE_7SEG
+	    LDA DE
+	    STA BUFFER+4
+	    LDA DE+1
+	    STA BUFFER+5
+	    RTS
+
+
+SEGTAB	.BYTE	0BDH		;'0'
+	.BYTE	030H		;'1'
+	.BYTE	09BH		;'2'
+	.BYTE	0BAH		;'3'
+	.BYTE	036H		;'4'
+	.BYTE	0AEH		;'5'
+	.BYTE	0AFH		;'6'
+	.BYTE	038H		;'7'
+	.BYTE	0BFH		;'8'
+	.BYTE	0BEH		;'9'
+	.BYTE	03FH		;'A'
+	.BYTE	0A7H		;'B'
+	.BYTE	08DH		;'C'
+	.BYTE	0B3H		;'D'
+	.BYTE	08FH		;'E'
+	.BYTE	00FH		;'F'
+
+
+
+; Key-posistion-code to key-internal-code conversion table.
+
+KEYTAB:
+K0	.BYTE	03H	;HEX_3
+K1	.BYTE	07H	;HEX_7
+K2	.BYTE	0BH	;HEX_B
+K3	.BYTE	0FH	;HEX_F
+K4	.BYTE	20H	;NOT USED
+K5	.BYTE	21H	;NOT USED
+K6	.BYTE	02H	;HEX_2
+K7	.BYTE	06H	;HEX_6
+K8	.BYTE	0AH	;HEX_A
+K9	.BYTE	0EH	;HEX_E
+K0A	.BYTE	22H	;NOT USED
+K0B	.BYTE	23H	;NOT USED
+K0C	.BYTE	01H	;HEX_1
+K0D	.BYTE	05H	;HEX_5
+K0E	.BYTE	09H	;HEX_9
+K0F	.BYTE	0DH	;HEX_D
+K10	.BYTE	13H	;STEP
+K11	.BYTE	1FH	;TAPERD
+K12	.BYTE	00H	;HEX_0
+K13	.BYTE	04H	;HEX_4
+K14	.BYTE	08H	;HEX_8
+K15	.BYTE	0CH	;HEX_C
+K16	.BYTE	12H	;GO
+K17	.BYTE	1EH	;TAPEWR
+K18	.BYTE	1AH	;CBR
+K19	.BYTE	18H	;PC
+K1A	.BYTE	1BH	;REG
+K1B	.BYTE	19H	;ADDR
+K1C	.BYTE	17H	;DEL
+K1D	.BYTE	1DH	;RELA
+K1E	.BYTE	15H	;SBR
+K1F	.BYTE	11H	;-
+K20	.BYTE	14H	;DATA
+K21	.BYTE	10H	;+
+K22	.BYTE	16H	;INS
+K23	.BYTE	1CH	;MOVE	
+
+
+
+
+;-------------------------------------------------------------
+
+MAIN    LDA #0AFH
+        STA BUFFER+5
+	LDA #0AEH
+	STA BUFFER+4
+	LDA #0BDH
+	STA BUFFER+3
+	LDA #9BH
+	STA BUFFER+2
+
+	LDA #0
+	STA BUFFER+1
+	STA BUFFER
+
+        LDA #00H
+	STA HL
+	LDA #40H
+	STA HL+1
+	JSR ADDRESS_DISPLAY
+        LDY #0
+	LDA (HL),Y
+	JSR DATA_DISPLAY
+
+
+
+LOOP	JSR SCANKEY
+	JMP LOOP
+
+        .END
+

@@ -1,0 +1,17 @@
+0001   0000             
+0002   0000             GPIO1   .EQU $8000
+0003   0000             
+0004   0000             	
+0005   0200             	.ORG 200H
+0006   0200             
+0007   0200 A2 10                LDX #$10
+0008   0202             
+0009   0202 8E 00 80    LOOP	 STX GPIO1
+0010   0205 CA          	 DEX
+0011   0206 D0 FA       	 BNE LOOP
+0012   0208             
+0013   0208 8E 00 80    	 STX GPIO1
+0014   020B 4C 0B 02    HERE	 JMP HERE
+0015   020E             
+0016   020E             	 .END
+tasm: Number of errors = 0

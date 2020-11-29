@@ -1,0 +1,116 @@
+0001   0000             ; Example of using 10ms tick, making a 4-digit timer
+0002   0000             ; display counting up in one second unit
+0003   0000             ; 
+0004   0000             
+0005   0000             
+0006   0000             ; I/O port locations
+0007   0000             
+0008   0000             GPIO1   .EQU 8000H
+0009   0000             PORT0   .EQU 8001H
+0010   0000             PORT1   .EQU 8002H
+0011   0000             PORT2   .EQU 8003H
+0012   0000             
+0013   0000             HL      .EQU 84H
+0014   0000             DE      .EQU 86H
+0015   0000             BUFFER  .EQU 8BH 
+0016   0000             
+0017   0000             
+0018   0000             ; montior call address
+0019   0000             
+0020   0000             INC_HL  .equ $c0c5
+0021   0000             ADDRESS_DISPLAY .equ $c2bb
+0022   0000             SCAN1   .equ $c20f
+0023   0000             
+0024   0000             
+0025   0000             
+0026   0000             
+0027   0030             	.ORG $30
+0028   0030             
+0029   0030             SEC100  .BLOCK 1
+0030   0031             SEC     .BLOCK 1
+0031   0032             TIME    .BLOCK 2
+0032   0034             
+0033   00FE                     .ORG $FE
+0034   00FE 15 02               .WORD SERVICE_IRQ
+0035   0100             
+0036   0200             	.ORG 200H
+0037   0200             
+0038   0200 A9 15       MAIN     LDA #SERVICE_IRQ&$FF
+0039   0202 85 FE                STA $FE
+0040   0204 A9 02       	 LDA #2
+0041   0206 85 FF       	 STA $FF
+0042   0208             
+0043   0208 A9 00       	 LDA #0
+0044   020A 85 32       	 STA TIME
+0045   020C 85 33       	 STA TIME+1
+0046   020E                     
+0047   020E 58          	 CLI       ; ENABLE IRQ
+0048   020F                      
+0049   020F 20 0F C2    LOOP	 JSR SCAN1 ; ONLY SCAN THE 7-SEGMENT DISPLAY
+0050   0212 4C 0F 02    	 JMP LOOP
+0051   0215             
+0052   0215             
+0053   0215             SERVICE_IRQ
+0054   0215             
+0055   0215 48                   PHA
+0056   0216 A6 00       	 LDX
+0057   0218 48          	 PHA
+0058   0219 A4 00       	 LDY
+0059   021B 48          	 PHA
+0060   021C             
+0061   021C A5 84       	 LDA HL
+0062   021E 48          	 PHA
+0063   021F A5 85       	 LDA HL+1
+0064   0221 48          	 PHA
+0065   0222             
+0066   0222 A5 86       	 LDA DE
+0067   0224 48          	 PHA
+0068   0225 A5 87       	 LDA DE+1
+0069   0227 48          	 PHA
+0070   0228             
+0071   0228 F8                   SED       ; SET DECIMAL MODE
+0072   0229 E6 30                INC SEC100
+0073   022B A5 30       	 LDA SEC100
+0074   022D C9 64       	 CMP #100
+0075   022F D0 23       	 BNE SKIP1
+0076   0231 A9 00       	 LDA #0
+0077   0233 85 30       	 STA SEC100
+0078   0235             ; EVERY SECOND INCREMENT TIME AND CONVERT IT TO ADDRESS DISPLAY	 
+0079   0235 18          	 CLC
+0080   0236             	 
+0081   0236 18          	 CLC
+0082   0237 A5 32                LDA TIME
+0083   0239 69 01       	 ADC #1
+0084   023B 85 32       	 STA TIME
+0085   023D A5 33       	 LDA TIME+1
+0086   023F 69 00       	 ADC #0
+0087   0241 85 33       	 STA TIME+1
+0088   0243             	 
+0089   0243 A5 32       	 LDA TIME
+0090   0245 85 84       	 STA HL
+0091   0247 A5 33       	 LDA TIME+1
+0092   0249 85 85       	 STA HL+1
+0093   024B 20 BB C2    	 JSR ADDRESS_DISPLAY
+0094   024E A9 00       	 LDA #0
+0095   0250 85 8B       	 STA BUFFER
+0096   0252 85 8C       	 STA BUFFER+1
+0097   0254             
+0098   0254 68          SKIP1    PLA 
+0099   0255 85 87                STA DE+1
+0100   0257 68          	 PLA
+0101   0258 85 86       	 STA DE
+0102   025A             
+0103   025A 68                   PLA
+0104   025B 85 85       	 STA HL+1
+0105   025D 68          	 PLA 
+0106   025E 85 84       	 STA HL
+0107   0260 68                   PLA
+0108   0261 A8          	 TAY
+0109   0262 68          	 PLA 
+0110   0263 AA          	 TAX
+0111   0264 68          	 PLA
+0112   0265 40                   RTI
+0113   0266                      
+0114   0266             	 .END
+0115   0266             
+tasm: Number of errors = 0

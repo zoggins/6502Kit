@@ -1,0 +1,116 @@
+; SCAN2 ONLY SCAN DISPLAY FOR RUNNING MESSAGE
+; USE FIX LOACTION IN CODE SPACE
+
+GPIO1   .EQU 8000H
+PORT0   .EQU 8001H
+PORT1   .EQU 8002H
+PORT2   .EQU 8003H
+
+DIGIT   .EQU 8002H
+SEG7    .EQU 8003H
+KIN     .EQU 8001H
+ 
+        .DSEG
+	 .ORG 80H
+       
+REG_E   .BLOCK 1
+REG_D   .BLOCK 1
+REG_B   .BLOCK 1
+REG_C   .BLOCK 1
+HL      .BLOCK 2           ; 84H = L 85H = H
+DE      .BLOCK 2
+REG_A   .BLOCK 1
+
+
+          .ORG 200H
+	  JMP MAIN
+
+; SCAN DISPLAY ONLY
+; ENTRY: X POINTED TO NEXT MESSAGE BYTE
+;        FIX_MESSAGE LOCATION
+
+SCAN2:
+	STX REG_C
+	LDA #1
+	STA REG_E
+	
+	LDA #6
+	STA HL
+				
+;to the active column.
+KCOL2   LDA REG_E	
+
+       	EOR #0FFH               ; COMPLEMENT IT
+	STA DIGIT
+
+	LDA START_MSG,X
+	STA SEG7
+
+	LDY #30
+DELAY5	DEY
+	BNE DELAY5
+
+	LDA #0                 ; TURN LED OFF
+	STA SEG7
+	
+	INX
+	
+	LDA REG_E
+	ASL A
+	STA REG_E
+		
+	DEC  HL
+	BNE  KCOL2
+
+	LDX REG_C 
+
+	RTS
+
+
+START_MSG .BYTE 0
+          .BYTE 0
+          .BYTE 9BH
+          .BYTE 0BDH
+          .BYTE 0AEH
+	  .BYTE 0AFH
+          .BYTE 0
+	  .BYTE 0
+	  .BYTE 0
+	  .BYTE 0
+	  .BYTE 0
+          .BYTE 0
+	 
+	 
+	  
+	  
+	  .BYTE 0
+	  .BYTE 0
+
+MAIN      LDA #5
+          STA REG_D
+
+	  LDA #8
+	  STA REG_B
+
+	  LDX #7
+
+DISPLAY2
+	  JSR SCAN2
+
+	  DEC REG_D
+	  BNE DISPLAY2
+
+	  DEX 
+
+	  DEC REG_B
+	  BNE DISPLAY2
+
+          JMP MAIN
+
+
+DISPLAY3  JSR SCAN2
+	  JMP DISPLAY3
+          
+	  .END
+
+	  .END

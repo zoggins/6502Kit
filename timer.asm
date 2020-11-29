@@ -1,0 +1,116 @@
+; Example of using 10ms tick, making a 4-digit timer
+; display counting up in one second unit
+; 
+
+
+; I/O port locations
+
+GPIO1   .EQU 8000H
+PORT0   .EQU 8001H
+PORT1   .EQU 8002H
+PORT2   .EQU 8003H
+
+HL      .EQU 84H
+DE      .EQU 86H
+BUFFER  .EQU 8BH 
+
+
+; montior call address
+
+INC_HL  .equ $c0c5
+ADDRESS_DISPLAY .equ $c2bb
+SCAN1   .equ $c20f
+
+
+
+
+	.ORG $30
+
+SEC100  .BLOCK 1
+SEC     .BLOCK 1
+TIME    .BLOCK 2
+
+        .ORG $FE
+        .WORD SERVICE_IRQ
+
+	.ORG 200H
+
+MAIN     LDA #SERVICE_IRQ&$FF
+         STA $FE
+	 LDA #2
+	 STA $FF
+
+	 LDA #0
+	 STA TIME
+	 STA TIME+1
+        
+	 CLI       ; ENABLE IRQ
+         
+LOOP	 JSR SCAN1 ; ONLY SCAN THE 7-SEGMENT DISPLAY
+	 JMP LOOP
+
+
+SERVICE_IRQ
+
+         PHA
+	 LDX
+	 PHA
+	 LDY
+	 PHA
+
+	 LDA HL
+	 PHA
+	 LDA HL+1
+	 PHA
+
+	 LDA DE
+	 PHA
+	 LDA DE+1
+	 PHA
+
+         SED       ; SET DECIMAL MODE
+         INC SEC100
+	 LDA SEC100
+	 CMP #100
+	 BNE SKIP1
+	 LDA #0
+	 STA SEC100
+; EVERY SECOND INCREMENT TIME AND CONVERT IT TO ADDRESS DISPLAY	 
+	 CLC
+	 
+	 CLC
+         LDA TIME
+	 ADC #1
+	 STA TIME
+	 LDA TIME+1
+	 ADC #0
+	 STA TIME+1
+	 
+	 LDA TIME
+	 STA HL
+	 LDA TIME+1
+	 STA HL+1
+	 JSR ADDRESS_DISPLAY
+	 LDA #0
+	 STA BUFFER
+	 STA BUFFER+1
+
+SKIP1    PLA 
+         STA DE+1
+	 PLA
+	 STA DE
+
+         PLA
+	 STA HL+1
+	 PLA 
+	 STA HL
+         PLA
+	 TAY
+	 PLA 
+	 TAX
+	 PLA
+         RTI
+         
+	 .END
+
+	 .END

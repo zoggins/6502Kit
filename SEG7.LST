@@ -1,0 +1,29 @@
+0001   0000             PORT1   .EQU 8002H
+0002   0000             PORT2   .EQU 8003H
+0003   0000             
+0004   0200             	.ORG 200H
+0005   0200                    
+0006   0200 A9 BF                LDA #$BF
+0007   0202 8D 02 80    	 STA PORT1
+0008   0205             
+0009   0205 A9 BD       LOOP	 LDA #$BD
+0010   0207 8D 03 80             STA PORT2
+0011   020A 20 18 02    	 JSR DELAYON
+0012   020D A9 00       	 LDA #%00000000
+0013   020F 8D 03 80    	 STA PORT2
+0014   0212 20 1E 02    	 JSR DELAYOFF
+0015   0215 4C 05 02    	 JMP LOOP
+0016   0218             
+0017   0218 A0 01       DELAYON  LDY #$1
+0018   021A 88          DELAY2   DEY
+0019   021B D0 FD       	 BNE DELAY2
+0020   021D 60          	 RTS
+0021   021E             
+0022   021E A0 C8       DELAYOFF  LDY #200
+0023   0220 88          DELAY3   DEY
+0024   0221 D0 FD       	 BNE DELAY3
+0025   0223 60          	 RTS
+0026   0224                      
+0027   0224             
+0028   0224             	 .END
+tasm: Number of errors = 0

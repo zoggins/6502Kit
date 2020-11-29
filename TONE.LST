@@ -1,0 +1,22 @@
+0001   0000             
+0002   0000             GPIO1   .EQU 8000H
+0003   0000             PORT0   .EQU 8001H
+0004   0000             PORT1   .EQU 8002H
+0005   0000             
+0006   0200             	.ORG 200H
+0007   0200                    
+0008   0200 A9 3F       TONE	 LDA #%00111111
+0009   0202 8D 02 80             STA PORT1
+0010   0205 20 13 02    	 JSR DELAY
+0011   0208 A9 BF       	 LDA #%10111111
+0012   020A 8D 02 80    	 STA PORT1
+0013   020D 20 13 02    	 JSR DELAY
+0014   0210 4C 00 02    	 JMP TONE
+0015   0213             
+0016   0213 A0 79       DELAY    LDY #$79
+0017   0215 88          DELAY2   DEY
+0018   0216 D0 FD       	 BNE DELAY2
+0019   0218 60          	 RTS
+0020   0219                      
+0021   0219             	 .END
+tasm: Number of errors = 0

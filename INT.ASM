@@ -1,0 +1,28 @@
+
+GPIO1   .EQU 8000H
+PORT0   .EQU 8001H
+PORT1   .EQU 8002H
+PORT2   .EQU 8003H
+
+	
+        .ORG $FE
+
+         .WORD SERVICE_IRQ
+
+	.ORG 200H
+
+MAIN     LDA #0
+         STA GPIO1
+
+	 BRK
+
+
+SERVICE_IRQ
+
+         LDA #$AA
+	 STA GPIO1
+	 RTI
+         
+	 .end
+
+	 .END

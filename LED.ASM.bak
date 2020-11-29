@@ -1,0 +1,30 @@
+
+GPIO1   .EQU 8000H
+PORT0   .EQU 8001H
+PORT1   .EQU 8002H
+PORT2   .EQU 8003H
+
+	
+	.ORG 200H
+
+MAIN     LDA #1
+         STA 0
+	 CLC
+	 
+MAIN2	 ROL 0
+         LDA 0
+	 STA GPIO1
+         	 
+	 LDX #0
+LOOP1	 LDY #0
+LOOP2	 DEY
+	 BNE LOOP2
+	 DEX
+	 BNE LOOP1
+
+	 JMP MAIN2
+         
+	 .END
+
+
+	 .END
